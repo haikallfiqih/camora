@@ -28,8 +28,6 @@ class CameraSession extends ChangeNotifier {
   Future<void> initialize() => refreshCameras();
 
   Future<void> refreshCameras() async {
-    final restartPreview = isPreviewing;
-    if (restartPreview) await stopPreview();
     isLoading = true;
     error = null;
     notifyListeners();
@@ -53,9 +51,6 @@ class CameraSession extends ChangeNotifier {
 
       if (preferred != null) {
         await _loadCameraDetails(preferred);
-        if (restartPreview) {
-          await startPreview();
-        }
       }
     } catch (exception) {
       error = exception.toString();

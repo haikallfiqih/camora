@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../../app/app_state.dart';
 import '../../app/camora_theme.dart';
 import '../../widgets/ui_components.dart';
 
 class SettingsPage extends StatelessWidget {
-  const SettingsPage({required this.appState, super.key});
-  final AppState appState;
+  const SettingsPage({super.key});
 
   @override
   Widget build(BuildContext context) => Column(
@@ -19,34 +17,28 @@ class SettingsPage extends StatelessWidget {
       Expanded(
         child: ListView(
           children: [
-            _SettingsSection(
+            const _SettingsSection(
               title: 'General',
               children: [
-                _SettingSwitch(
+                _UnavailableSetting(
                   title: 'Start preview on launch',
-                  subtitle: 'Automatically open the selected camera when Camora starts.',
-                  value: appState.startPreviewOnLaunch,
-                  onChanged: appState.setStartPreviewOnLaunch,
+                  subtitle: 'Automatic preview startup is not implemented yet.',
                 ),
-                _SettingSwitch(
+                _UnavailableSetting(
                   title: 'Minimize to tray',
-                  subtitle: 'Keep Camora available when its window is closed.',
-                  value: appState.minimizeToTray,
-                  onChanged: appState.setMinimizeToTray,
+                  subtitle: 'System tray integration is not implemented yet.',
                 ),
               ],
             ),
             const SizedBox(height: 16),
-            _SettingsSection(
+            const _SettingsSection(
               title: 'Performance',
               children: [
-                _SettingSwitch(
+                _UnavailableSetting(
                   title: 'Hardware acceleration',
-                  subtitle: 'Use Flutter hardware acceleration for the application UI.',
-                  value: appState.hardwareAcceleration,
-                  onChanged: appState.setHardwareAcceleration,
+                  subtitle: 'Runtime acceleration selection is not available.',
                 ),
-                const ListTile(
+                ListTile(
                   contentPadding: EdgeInsets.zero,
                   title: Text('Video processing'),
                   subtitle: Text(
@@ -106,6 +98,7 @@ class _SettingsSection extends StatelessWidget {
   const _SettingsSection({required this.title, required this.children});
   final String title;
   final List<Widget> children;
+
   @override
   Widget build(BuildContext context) => CamoraPanel(
     child: Column(
@@ -119,30 +112,24 @@ class _SettingsSection extends StatelessWidget {
   );
 }
 
-class _SettingSwitch extends StatelessWidget {
-  const _SettingSwitch({
-    required this.title,
-    required this.subtitle,
-    required this.value,
-    required this.onChanged,
-  });
+class _UnavailableSetting extends StatelessWidget {
+  const _UnavailableSetting({required this.title, required this.subtitle});
   final String title;
   final String subtitle;
-  final bool value;
-  final ValueChanged<bool> onChanged;
+
   @override
-  Widget build(BuildContext context) => SwitchListTile(
+  Widget build(BuildContext context) => ListTile(
     contentPadding: EdgeInsets.zero,
     title: Text(title),
     subtitle: Text(subtitle),
-    value: value,
-    onChanged: onChanged,
+    trailing: const StatusPill('Coming soon'),
   );
 }
 
 class _CamoraMark extends StatelessWidget {
   const _CamoraMark({required this.size});
   final double size;
+
   @override
   Widget build(BuildContext context) => Container(
     width: size,
