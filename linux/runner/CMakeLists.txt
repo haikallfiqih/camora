@@ -1,12 +1,37 @@
 cmake_minimum_required(VERSION 3.13)
 
 find_package(PkgConfig REQUIRED)
-find_file(
-  ONNXRUNTIME_LIBRARY
-  NAMES libonnxruntime.so libonnxruntime.so.1.23 libonnxruntime.so.1.23.2
-  PATHS /usr/lib /usr/lib/x86_64-linux-gnu
-  REQUIRED
+set(
+  CAMORA_ONNXRUNTIME_LOCAL
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../native/third_party/onnxruntime/lib/libonnxruntime.so"
 )
+
+if(EXISTS "${CAMORA_ONNXRUNTIME_LOCAL}")
+  set(
+    ONNXRUNTIME_LIBRARY
+    "${CAMORA_ONNXRUNTIME_LOCAL}"
+  )
+  message(
+    STATUS
+    "Camora: using managed ONNX Runtime: ${ONNXRUNTIME_LIBRARY}"
+  )
+else()
+  find_file(
+    ONNXRUNTIME_LIBRARY
+    NAMES
+      libonnxruntime.so
+      libonnxruntime.so.1.23
+      libonnxruntime.so.1.23.2
+    PATHS
+      /usr/lib
+      /usr/lib/x86_64-linux-gnu
+    REQUIRED
+  )
+  message(
+    STATUS
+    "Camora: using system ONNX Runtime fallback: ${ONNXRUNTIME_LIBRARY}"
+  )
+endif()
 
 pkg_check_modules(
   GST REQUIRED
@@ -25,6 +50,7 @@ add_executable(${BINARY_NAME}
   "../../native/capture_engine.cpp"
   "../../native/low_light_processor.cpp"
   "../../native/background_segmenter.cpp"
+  "../../native/inference_backend.cpp"
 )
 
 apply_standard_settings(${BINARY_NAME})

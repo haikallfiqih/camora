@@ -1,6 +1,7 @@
 #include "background_segmenter.h"
+#include "inference_backend.h"
 
-#include "third_party/onnxruntime/onnxruntime_cxx_api.h"
+#include "third_party/onnxruntime/include/onnxruntime_cxx_api.h"
 
 #include <algorithm>
 #include <array>
@@ -32,6 +33,7 @@ struct BackgroundSegmenter::Impl {
 
     Ort::Env environment;
     Ort::SessionOptions options;
+    InferenceInfo inferenceInfo;
     std::unique_ptr<Ort::Session> session;
     Ort::MemoryInfo memory;
     std::array<std::vector<float>, 4> recurrentData;
@@ -40,6 +42,10 @@ struct BackgroundSegmenter::Impl {
 
 BackgroundSegmenter::BackgroundSegmenter() = default;
 BackgroundSegmenter::~BackgroundSegmenter() = default;
+
+void BackgroundSegmenter::shutdown() {
+    reset();
+}
 
 void BackgroundSegmenter::reset() {
     impl_.reset();
@@ -90,12 +96,20 @@ bool BackgroundSegmenter::initialize(
 
     try {
         impl_ = std::make_unique<Impl>();
-        impl_->options.SetIntraOpNumThreads(4);
-        impl_->options.SetInterOpNumThreads(1);
-        impl_->options.SetGraphOptimizationLevel(
-            GraphOptimizationLevel::ORT_ENABLE_ALL);
+
+        impl_->inferenceInfo =
+            InferenceBackendSelector::configure(
+                impl_->options);
+
         impl_->session = std::make_unique<Ort::Session>(
-            impl_->environment, modelPath.c_str(), impl_->options);
+            impl_->environment,
+            modelPath.c_str(),
+            impl_->options);
+
+        std::cerr
+            << "[Camora] RVM initialized with "
+            << impl_->inferenceInfo.provider
+            << std::endl;
         for (size_t index = 0; index < impl_->recurrentData.size(); ++index) {
             impl_->recurrentData[index] = {0.0f};
             impl_->recurrentShapes[index] = {1, 1, 1, 1};

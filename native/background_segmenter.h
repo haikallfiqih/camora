@@ -30,6 +30,10 @@ public:
     int maskWidth() const { return inputWidth_; }
     int maskHeight() const { return inputHeight_; }
 
+    // Explicitly release the ONNX Runtime session and GPU resources.
+    // Must only be called when no segmentation worker is using this object.
+    void shutdown();
+
 private:
     void reset();
 

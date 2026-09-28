@@ -91,6 +91,23 @@ install(CODE "
 set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
 set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}/lib")
 
+# Bundle Camora-managed ONNX Runtime with the Flutter application.
+set(
+  CAMORA_ONNXRUNTIME_BUNDLE_SOURCE
+  "${CMAKE_SOURCE_DIR}/../native/third_party/onnxruntime/lib"
+)
+
+if(EXISTS "${CAMORA_ONNXRUNTIME_BUNDLE_SOURCE}/libonnxruntime.so")
+  install(
+    DIRECTORY "${CAMORA_ONNXRUNTIME_BUNDLE_SOURCE}/"
+    DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+    COMPONENT Runtime
+    FILES_MATCHING
+      PATTERN "libonnxruntime.so*"
+      PATTERN "libonnxruntime_providers_*.so*"
+  )
+endif()
+
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
 
