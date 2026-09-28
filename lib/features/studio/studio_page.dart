@@ -16,6 +16,7 @@ class StudioPage extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final sideBySide = constraints.maxWidth >= 620;
+        final controlsWidth = (constraints.maxWidth * 0.34).clamp(250.0, 340.0);
         return Column(
           children: [
             PageHeading(
@@ -38,7 +39,7 @@ class StudioPage extends StatelessWidget {
                         ),
                         const SizedBox(width: 12),
                         SizedBox(
-                          width: constraints.maxWidth.clamp(620, 1000) * 0.32,
+                          width: controlsWidth,
                           child: _LiveControls(
                             session: session,
                             appState: appState,
@@ -51,7 +52,7 @@ class StudioPage extends StatelessWidget {
                         Expanded(child: _PreviewWorkspace(session: session)),
                         const SizedBox(height: 16),
                         SizedBox(
-                          height: 210,
+                          height: 280,
                           child: _LiveControls(
                             session: session,
                             appState: appState,
