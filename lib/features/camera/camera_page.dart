@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../app/camora_theme.dart';
-import '../../camera/camera_control.dart';
 import '../../camera/camera_format.dart';
 import '../../camera/camera_session.dart';
+import '../../widgets/camera_control_widgets.dart';
 import '../../widgets/ui_components.dart';
 
 class CameraPage extends StatelessWidget {
@@ -151,121 +151,10 @@ class _ControlsPanel extends StatelessWidget {
         else if (session.controls.isEmpty)
           const _EmptyMessage('This device did not report adjustable controls.')
         else
-          ...session.controls.map(
-            (control) => Padding(
-              padding: const EdgeInsets.only(bottom: 18),
-              child: _ControlEditor(session: session, control: control),
-            ),
-          ),
+          CameraControlList(session: session),
       ],
     ),
   );
-}
-
-class _ControlEditor extends StatelessWidget {
-  const _ControlEditor({required this.session, required this.control});
-  final CameraSession session;
-  final CameraControl control;
-
-  @override
-  Widget build(BuildContext context) => Opacity(
-    opacity: control.inactive ? 0.45 : 1,
-    child: IgnorePointer(
-      ignoring: control.inactive,
-      child: switch (control.type) {
-        'boolean' => SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          title: Text(control.name),
-          value: control.value != 0,
-          onChanged: (value) => session.setControl(control, value ? 1 : 0),
-        ),
-        'menu' || 'integer_menu' => Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(control.name),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<int>(
-              initialValue: control.value,
-              items: control.options
-                  .map(
-                    (option) => DropdownMenuItem(
-                      value: option.value,
-                      child: Text(option.label),
-                    ),
-                  )
-                  .toList(),
-              onChanged: (value) {
-                if (value != null) session.setControl(control, value);
-              },
-            ),
-          ],
-        ),
-        'integer' => _IntegerControl(session: session, control: control),
-        _ => Text(
-          '${control.name} (${control.type})',
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-      },
-    ),
-  );
-}
-
-class _IntegerControl extends StatelessWidget {
-  const _IntegerControl({required this.session, required this.control});
-  final CameraSession session;
-  final CameraControl control;
-
-  @override
-  Widget build(BuildContext context) {
-    final divisions = control.step > 0
-        ? ((control.max - control.min) ~/ control.step).clamp(1, 1000)
-        : null;
-    return Column(
-      children: [
-        Row(
-          children: [
-            Expanded(child: Text(control.name)),
-            Text(
-              '${control.value}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        ),
-        Slider(
-          min: control.min.toDouble(),
-          max: control.max.toDouble(),
-          divisions: divisions,
-          value: control.value.clamp(control.min, control.max).toDouble(),
-          onChanged: (value) {
-            final step = control.step <= 0 ? 1 : control.step;
-            final snapped =
-                control.min + (((value - control.min) / step).round() * step);
-            session.setControl(
-              control,
-              snapped.clamp(control.min, control.max),
-            );
-          },
-        ),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              '${control.min}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            Text(
-              'Default ${control.defaultValue}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            Text(
-              '${control.max}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        ),
-      ],
-    );
-  }
 }
 
 class _EmptyMessage extends StatelessWidget {
