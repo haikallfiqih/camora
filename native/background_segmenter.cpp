@@ -11,11 +11,8 @@
 
 namespace {
 // Maximum dimension of the image presented to RVM.
-//
-// 448 was fast, but thin moving structures such as fingers could collapse
-// to only a few matte pixels. 512 gives RVM more spatial information while
-// remaining conservative enough for realtime CUDA inference.
-constexpr int kMaximumMattingDimension = 512;
+// 448 keeps background segmentation lightweight enough for realtime use.
+constexpr int kMaximumMattingDimension = 448;
 
 int alignDimension(float dimension) {
     return std::max(32, static_cast<int>(std::round(dimension / 32.0f)) * 32);
