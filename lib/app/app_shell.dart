@@ -43,7 +43,7 @@ class _AppShellState extends State<AppShell> {
           animation: Listenable.merge([session, appState]),
           builder: (context, _) => LayoutBuilder(
             builder: (context, constraints) {
-              final expanded = constraints.maxWidth >= 820;
+              final expanded = constraints.maxWidth >= 920;
               return Row(
                 children: [
                   _Sidebar(appState: appState, expanded: expanded),
@@ -102,7 +102,7 @@ class _Sidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    width: expanded ? 156 : 64,
+    width: expanded ? 220 : 64,
     decoration: const BoxDecoration(
       color: CamoraColors.sidebar,
       border: Border(right: BorderSide(color: CamoraColors.border)),
@@ -202,13 +202,17 @@ class _NavigationItem extends StatelessWidget {
                 color: selected ? Colors.white : CamoraColors.muted,
               ),
               if (expanded) ...[
-                const SizedBox(width: 8),
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: selected ? Colors.white : const Color(0xFFD2D6DF),
-                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: selected ? Colors.white : const Color(0xFFD2D6DF),
+                      fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                    ),
                   ),
                 ),
               ],
