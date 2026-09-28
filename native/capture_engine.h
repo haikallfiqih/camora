@@ -60,6 +60,8 @@ public:
 
 private:
     void captureLoop();
+    void processingLoop();
+    void submitProcessingFrame(const uint8_t* rgba, size_t size);
     void segmentationLoop();
     void submitSegmentationFrame(const uint8_t* rgba);
     void compositeBackground(uint8_t* rgba);
@@ -77,6 +79,18 @@ private:
     LowLightProcessor lowLightProcessor_;
 
     std::thread thread_;
+
+    // Latest-frame processing worker.
+    //
+    // Capture never waits for effects. If processing is slower
+    // than capture, the pending frame is replaced with the newest
+    // frame instead of building latency.
+    std::thread processingThread_;
+    std::mutex processingMutex_;
+    std::condition_variable processingCondition_;
+    std::vector<uint8_t> processingInput_;
+    bool processingPending_ = false;
+    bool processingStop_ = false;
 
     BackgroundSegmenter segmenter_;
     std::atomic<bool> backgroundEnabled_{false};

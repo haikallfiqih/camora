@@ -37,6 +37,13 @@ bool CaptureEngine::start(
     subjectAlpha_.clear();
 
     {
+        std::lock_guard<std::mutex> lock(processingMutex_);
+        processingPending_ = false;
+        processingStop_ = false;
+        processingInput_.clear();
+    }
+
+    {
         std::lock_guard<std::mutex> lock(segmentationMutex_);
         segmentationPending_ = false;
         segmentationStop_ = false;
@@ -46,6 +53,11 @@ bool CaptureEngine::start(
 
     segmentationThread_ = std::thread(
         &CaptureEngine::segmentationLoop,
+        this
+    );
+
+    processingThread_ = std::thread(
+        &CaptureEngine::processingLoop,
         this
     );
 
@@ -62,6 +74,17 @@ void CaptureEngine::stop() {
 
     if (thread_.joinable()) {
         thread_.join();
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(processingMutex_);
+        processingStop_ = true;
+        processingPending_ = false;
+    }
+    processingCondition_.notify_one();
+
+    if (processingThread_.joinable()) {
+        processingThread_.join();
     }
 
     {
@@ -107,6 +130,91 @@ void CaptureEngine::setBackgroundReplacement(
     backgroundHeight_ = height;
     backgroundEnabled_ = enabled && !backgroundPixels_.empty();
     if (!backgroundEnabled_) segmenter_.resetTemporalState();
+}
+
+void CaptureEngine::submitProcessingFrame(
+    const uint8_t* rgba,
+    size_t size
+) {
+    if (!rgba || size == 0) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(processingMutex_);
+
+    if (processingStop_) {
+        return;
+    }
+
+    // One pending slot only.
+    //
+    // If processing is behind, overwrite the old pending frame
+    // with the newest camera frame. This intentionally drops
+    // processing frames instead of accumulating latency.
+    if (processingInput_.size() != size) {
+        processingInput_.resize(size);
+    }
+
+    std::memcpy(
+        processingInput_.data(),
+        rgba,
+        size
+    );
+
+    processingPending_ = true;
+    processingCondition_.notify_one();
+}
+
+void CaptureEngine::processingLoop() {
+    std::vector<uint8_t> frame;
+
+    while (true) {
+        {
+            std::unique_lock<std::mutex> lock(processingMutex_);
+
+            processingCondition_.wait(
+                lock,
+                [this] {
+                    return processingPending_ ||
+                           processingStop_;
+                }
+            );
+
+            if (processingStop_) {
+                return;
+            }
+
+            frame.swap(processingInput_);
+            processingPending_ = false;
+        }
+
+        if (frame.empty()) {
+            continue;
+        }
+
+        // Heavy processing happens WITHOUT frameMutex_.
+        lowLightProcessor_.process(
+            frame.data(),
+            width_,
+            height_
+        );
+
+        compositeBackground(frame.data());
+
+        // frameMutex_ is held only while publishing the
+        // finished frame.
+        {
+            std::lock_guard<std::mutex> lock(frameMutex_);
+
+            if (latestFrame_.size() == frame.size()) {
+                std::memcpy(
+                    latestFrame_.data(),
+                    frame.data(),
+                    frame.size()
+                );
+            }
+        }
+    }
 }
 
 void CaptureEngine::submitSegmentationFrame(const uint8_t* rgba) {
@@ -367,22 +475,10 @@ void CaptureEngine::captureLoop() {
                 );
 
             if (map.size >= required) {
-                std::lock_guard<std::mutex>
-                    lock(frameMutex_);
-
-                std::memcpy(
-                    latestFrame_.data(),
+                submitProcessingFrame(
                     map.data,
                     required
                 );
-
-                lowLightProcessor_.process(
-                    latestFrame_.data(),
-                    width_,
-                    height_
-                );
-
-                compositeBackground(latestFrame_.data());
             }
 
             gst_buffer_unmap(
