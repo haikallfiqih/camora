@@ -10,7 +10,12 @@
 #include <numeric>
 
 namespace {
-constexpr int kMaximumMattingDimension = 448;
+// Maximum dimension of the image presented to RVM.
+//
+// 448 was fast, but thin moving structures such as fingers could collapse
+// to only a few matte pixels. 512 gives RVM more spatial information while
+// remaining conservative enough for realtime CUDA inference.
+constexpr int kMaximumMattingDimension = 512;
 
 int alignDimension(float dimension) {
     return std::max(32, static_cast<int>(std::round(dimension / 32.0f)) * 32);
@@ -93,6 +98,18 @@ bool BackgroundSegmenter::initialize(
             kMaximumMattingDimension * frameWidth /
             static_cast<float>(frameHeight));
     }
+
+    std::cerr
+        << "[Camora] RVM matting resolution: "
+        << inputWidth_
+        << "x"
+        << inputHeight_
+        << " (source "
+        << frameWidth_
+        << "x"
+        << frameHeight_
+        << ")"
+        << std::endl;
 
     try {
         impl_ = std::make_unique<Impl>();

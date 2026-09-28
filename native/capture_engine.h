@@ -102,6 +102,11 @@ private:
     int backgroundWidth_ = 0;
     int backgroundHeight_ = 0;
     std::vector<float> subjectMask_;
+
+    // Used only for motion detection during edge refinement.
+    // Never blended into the current matte, avoiding temporal ghosting.
+    std::vector<float> previousSubjectMask_;
+
     std::mutex segmentationMutex_;
     std::condition_variable segmentationCondition_;
     std::thread segmentationThread_;

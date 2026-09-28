@@ -34,6 +34,7 @@ bool CaptureEngine::start(
     );
 
     subjectMask_.clear();
+    previousSubjectMask_.clear();
     segmentationFrame_.clear();
 
     {
@@ -134,7 +135,11 @@ void CaptureEngine::setBackgroundReplacement(
     backgroundWidth_ = width;
     backgroundHeight_ = height;
     backgroundEnabled_ = enabled && !backgroundPixels_.empty();
-    if (!backgroundEnabled_) segmenter_.resetTemporalState();
+
+    if (!backgroundEnabled_) {
+        segmenter_.resetTemporalState();
+        previousSubjectMask_.clear();
+    }
 }
 
 void CaptureEngine::submitProcessingFrame(
@@ -291,6 +296,50 @@ void CaptureEngine::segmentationLoop() {
 
         const int maskWidth = segmenter_.maskWidth();
         const int maskHeight = segmenter_.maskHeight();
+
+        const bool hasPreviousMask =
+            previousSubjectMask_.size() == subjectMask_.size();
+
+        std::vector<float> refinedMask(subjectMask_.size());
+
+        for (size_t i = 0; i < subjectMask_.size(); ++i) {
+            const float current = std::clamp(
+                subjectMask_[i], 0.0f, 1.0f);
+
+            // Motion is measured only to decide whether refinement is safe.
+            // The previous alpha is never blended into the current alpha.
+            const float motion = hasPreviousMask
+                ? std::abs(current - previousSubjectMask_[i])
+                : 1.0f;
+
+            float refined = current;
+
+            // Only touch genuinely uncertain matte pixels.
+            if (current > 0.08f &&
+                current < 0.92f &&
+                motion < 0.08f) {
+
+                // Mild stable-edge refinement.
+                //
+                // One smoothstep only. Unlike v1, this deliberately avoids
+                // aggressively collapsing uncertain foreground pixels.
+                const float smooth =
+                    current * current * (3.0f - 2.0f * current);
+
+                // Blend only 25% toward the refined value.
+                // 75% remains the original RVM matte.
+                refined =
+                    current * 0.75f +
+                    smooth * 0.25f;
+            }
+
+            refinedMask[i] = refined;
+        }
+
+        // Save CURRENT raw RVM mask only for motion detection next frame.
+        // Do not save refinedMask here.
+        previousSubjectMask_ = subjectMask_;
+
         std::vector<uint8_t> alpha(static_cast<size_t>(width_ * height_));
         for (int y = 0; y < height_; ++y) {
             const float maskY = height_ > 1
@@ -306,12 +355,12 @@ void CaptureEngine::segmentationLoop() {
                 const int x0 = static_cast<int>(maskX);
                 const int x1 = std::min(maskWidth - 1, x0 + 1);
                 const float fx = maskX - x0;
-                const float top = subjectMask_[y0 * maskWidth + x0] *
+                const float top = refinedMask[y0 * maskWidth + x0] *
                         (1.0f - fx) +
-                    subjectMask_[y0 * maskWidth + x1] * fx;
-                const float bottom = subjectMask_[y1 * maskWidth + x0] *
+                    refinedMask[y0 * maskWidth + x1] * fx;
+                const float bottom = refinedMask[y1 * maskWidth + x0] *
                         (1.0f - fx) +
-                    subjectMask_[y1 * maskWidth + x1] * fx;
+                    refinedMask[y1 * maskWidth + x1] * fx;
                 const float probability = top * (1.0f - fy) + bottom * fy;
                 const float confidence = std::clamp(
                     (probability - 0.03f) / 0.94f, 0.0f, 1.0f);
