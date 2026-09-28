@@ -153,7 +153,8 @@ class CameraSession extends ChangeNotifier {
     _synchronizeEffects();
   }
 
-  Future<void> _synchronizeEffects() {
+  Future<void> _synchronizeEffects({bool force = false}) {
+    if (force) _effectsRevision += 1;
     final activeSync = _effectsSync;
     if (activeSync != null) return activeSync;
 
@@ -197,13 +198,14 @@ class CameraSession extends ChangeNotifier {
     previewError = null;
     notifyListeners();
     try {
-      await _synchronizeEffects();
       textureId = await CamoraVideo.start(
         device: camera.path,
         width: format.width,
         height: format.height,
         fps: format.fps,
       );
+      await _synchronizeEffects();
+      await _synchronizeEffects(force: true);
     } catch (exception) {
       previewError = exception.toString();
     } finally {
