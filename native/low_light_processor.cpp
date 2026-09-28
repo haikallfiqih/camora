@@ -6,6 +6,10 @@
 #include <cstring>
 
 void LowLightProcessor::setEnabled(bool enabled) {
+    if (enabled_ && !enabled) {
+        resetTemporalState();
+    }
+
     enabled_ = enabled;
 }
 
@@ -21,11 +25,190 @@ int LowLightProcessor::strength() const {
     return strength_;
 }
 
+void LowLightProcessor::resetTemporalState() {
+    temporalFrame_.clear();
+    temporalWidth_ = 0;
+    temporalHeight_ = 0;
+}
+
+void LowLightProcessor::temporalDenoise(
+    uint8_t* rgba,
+    int width,
+    int height,
+    float amount
+) {
+    if (!rgba || width <= 0 || height <= 0) {
+        return;
+    }
+
+    const size_t frameSize =
+        static_cast<size_t>(width) *
+        static_cast<size_t>(height) * 4;
+
+    if (temporalFrame_.size() != frameSize ||
+        temporalWidth_ != width ||
+        temporalHeight_ != height) {
+
+        temporalFrame_.resize(frameSize);
+
+        std::memcpy(
+            temporalFrame_.data(),
+            rgba,
+            frameSize
+        );
+
+        temporalWidth_ = width;
+        temporalHeight_ = height;
+
+        return;
+    }
+
+    const size_t pixelCount =
+        static_cast<size_t>(width) *
+        static_cast<size_t>(height);
+
+    // Integer temporal filter.
+    //
+    // No float blending in the hot pixel path.
+    // Bright pixels bypass temporal filtering completely.
+    for (size_t i = 0; i < pixelCount; ++i) {
+        uint8_t* current =
+            rgba + i * 4;
+
+        uint8_t* history =
+            temporalFrame_.data() + i * 4;
+
+        // Cheap approximate luminance.
+        //
+        // (R*54 + G*183 + B*19) / 256
+        const int currentY =
+            (
+                54 * current[0] +
+                183 * current[1] +
+                19 * current[2]
+            ) >> 8;
+
+        // Bright areas generally don't need low-light denoise.
+        // Refresh history and move on.
+        if (currentY >= 145) {
+            history[0] = current[0];
+            history[1] = current[1];
+            history[2] = current[2];
+            history[3] = current[3];
+            continue;
+        }
+
+        const int historyY =
+            (
+                54 * history[0] +
+                183 * history[1] +
+                19 * history[2]
+            ) >> 8;
+
+        const int difference =
+            std::abs(currentY - historyY);
+
+        // Motion / large scene change:
+        // trust current frame and reset history here.
+        if (difference >= 18) {
+            history[0] = current[0];
+            history[1] = current[1];
+            history[2] = current[2];
+            history[3] = current[3];
+            continue;
+        }
+
+        // Determine history weight using integer fractions.
+        //
+        // Deep shadows get the strongest filtering.
+        // Midtones remain conservative to protect faces/details.
+        int historyWeight = 0;
+
+        if (currentY < 55) {
+            if (difference <= 3) {
+                historyWeight = 5; // 5/8
+            } else if (difference <= 8) {
+                historyWeight = 4; // 4/8
+            } else {
+                historyWeight = 2; // 2/8
+            }
+        } else if (currentY < 100) {
+            if (difference <= 3) {
+                historyWeight = 4; // 4/8
+            } else if (difference <= 8) {
+                historyWeight = 3; // 3/8
+            } else {
+                historyWeight = 1; // 1/8
+            }
+        } else {
+            if (difference <= 3) {
+                historyWeight = 2; // 2/8
+            } else {
+                historyWeight = 0;
+            }
+        }
+
+        // At lower enhancement strength, reduce temporal filtering.
+        if (amount < 0.45f && historyWeight > 0) {
+            --historyWeight;
+        }
+
+        if (historyWeight <= 0) {
+            history[0] = current[0];
+            history[1] = current[1];
+            history[2] = current[2];
+            history[3] = current[3];
+            continue;
+        }
+
+        const int currentWeight =
+            8 - historyWeight;
+
+        // Rounded integer blend.
+        const uint8_t r =
+            static_cast<uint8_t>(
+                (
+                    current[0] * currentWeight +
+                    history[0] * historyWeight +
+                    4
+                ) >> 3
+            );
+
+        const uint8_t g =
+            static_cast<uint8_t>(
+                (
+                    current[1] * currentWeight +
+                    history[1] * historyWeight +
+                    4
+                ) >> 3
+            );
+
+        const uint8_t b =
+            static_cast<uint8_t>(
+                (
+                    current[2] * currentWeight +
+                    history[2] * historyWeight +
+                    4
+                ) >> 3
+            );
+
+        current[0] = r;
+        current[1] = g;
+        current[2] = b;
+
+        // Filtered output becomes next temporal reference.
+        history[0] = r;
+        history[1] = g;
+        history[2] = b;
+        history[3] = current[3];
+    }
+}
+
 void LowLightProcessor::process(
     uint8_t* rgba,
     int width,
     int height
-) const {
+) {
     if (!enabled_ || !rgba || strength_ <= 0 ||
         width <= 0 || height <= 0) {
         return;
@@ -96,8 +279,17 @@ void LowLightProcessor::process(
         darkness * userAmount;
 
     if (amount < 0.01f) {
+        resetTemporalState();
         return;
     }
+
+    // Clean sensor noise before lifting shadows/midtones.
+    temporalDenoise(
+        rgba,
+        width,
+        height,
+        amount
+    );
 
     // ---------------------------------------------------------
     // 2. Build luminance LUT.
