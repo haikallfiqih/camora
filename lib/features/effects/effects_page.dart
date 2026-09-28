@@ -28,6 +28,7 @@ class EffectsPage extends StatelessWidget {
       'Background Removal',
       'Isolate the subject and remove the scene behind them.',
       Icons.content_cut_outlined,
+      available: true,
     ),
     EffectDefinition(
       CameraEffect.backgroundImage,
@@ -130,7 +131,7 @@ class _AvailabilityNotice extends StatelessWidget {
         Expanded(
           child: Text(
             'Low Light Enhancement is processed live in the native camera pipeline. '
-            'Background Image and Low Light Enhancement are processed live in the native camera pipeline.',
+            'Background Blur, Background Removal, Background Image, and Low Light Enhancement are processed live in the native camera pipeline.',
             style: TextStyle(color: Color(0xFFD6DAE3), height: 1.4),
           ),
         ),
@@ -173,6 +174,10 @@ class _EffectList extends StatelessWidget {
                   session.configureBackgroundBlur(
                     enabled: value,
                     strength: appState.backgroundBlurStrength,
+                  );
+                } else if (effect.effect == CameraEffect.backgroundRemoval) {
+                  session.configureBackgroundRemoval(
+                    enabled: value,
                   );
                 } else if (effect.effect == CameraEffect.backgroundImage) {
                   session.configureBackgroundImage(
@@ -317,6 +322,11 @@ class _EffectInspector extends StatelessWidget {
                           session.configureBackgroundBlur(
                             enabled: value,
                             strength: appState.backgroundBlurStrength,
+                          );
+                        } else if (definition.effect ==
+                            CameraEffect.backgroundRemoval) {
+                          session.configureBackgroundRemoval(
+                            enabled: value,
                           );
                         } else if (definition.effect ==
                             CameraEffect.backgroundImage) {

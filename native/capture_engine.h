@@ -44,6 +44,10 @@ public:
         int strength
     );
 
+    void setBackgroundRemoval(
+        bool enabled
+    );
+
     bool backgroundReplacementAvailable() const {
         return segmenter_.configuredForFrame(width_, height_);
     }
@@ -78,6 +82,11 @@ private:
         const std::vector<uint8_t>& alpha
     );
 
+    void compositeBackgroundRemoval(
+        uint8_t* rgba,
+        const std::vector<uint8_t>& alpha
+    );
+
     std::string device_;
 
     int width_ = 0;
@@ -108,6 +117,7 @@ private:
     std::atomic<bool> backgroundEnabled_{false};
     std::atomic<bool> backgroundBlurEnabled_{false};
     std::atomic<int> backgroundBlurStrength_{70};
+    std::atomic<bool> backgroundRemovalEnabled_{false};
     std::mutex backgroundMutex_;
     std::vector<uint8_t> backgroundPixels_;
     int backgroundWidth_ = 0;

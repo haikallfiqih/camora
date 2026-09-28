@@ -64,6 +64,50 @@ static gboolean camora_texture_copy_pixels(
         return FALSE;
     }
 
+    // Flutter's Linux texture preview is an RGB presentation surface for
+    // Camora. When processed RGBA contains transparency, visualize it over
+    // a checkerboard while keeping CaptureEngine's actual frame untouched.
+    //
+    // Opaque frames (normal, blur, image replacement) are unchanged.
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            uint8_t* pixel =
+                self->pixels.data() +
+                static_cast<size_t>(y * w + x) * 4;
+
+            const int alpha = pixel[3];
+
+            if (alpha >= 255) {
+                continue;
+            }
+
+            constexpr int checkerSize = 18;
+
+            const bool alternate =
+                ((x / checkerSize) + (y / checkerSize)) % 2;
+
+            const int checker =
+                alternate ? 72 : 48;
+
+            const int inverseAlpha = 255 - alpha;
+
+            pixel[0] = static_cast<uint8_t>(
+                (pixel[0] * alpha +
+                 checker * inverseAlpha + 127) / 255);
+
+            pixel[1] = static_cast<uint8_t>(
+                (pixel[1] * alpha +
+                 checker * inverseAlpha + 127) / 255);
+
+            pixel[2] = static_cast<uint8_t>(
+                (pixel[2] * alpha +
+                 checker * inverseAlpha + 127) / 255);
+
+            // Preview itself is now flattened.
+            pixel[3] = 255;
+        }
+    }
+
     *out_buffer =
         self->pixels.data();
 

@@ -27,6 +27,7 @@ class CameraSession extends ChangeNotifier {
   String? backgroundImagePath;
   bool backgroundBlurEnabled = false;
   double backgroundBlurStrength = 0.7;
+  bool backgroundRemovalEnabled = false;
   String? error;
   String? previewError;
 
@@ -154,6 +155,19 @@ class CameraSession extends ChangeNotifier {
     await _pushEffects();
   }
 
+  Future<void> configureBackgroundRemoval({
+    required bool enabled,
+  }) async {
+    backgroundRemovalEnabled = enabled;
+
+    if (enabled) {
+      backgroundBlurEnabled = false;
+      backgroundImageEnabled = false;
+    }
+
+    await _pushEffects();
+  }
+
   Future<void> configureBackgroundBlur({
     required bool enabled,
     required double strength,
@@ -162,6 +176,7 @@ class CameraSession extends ChangeNotifier {
     backgroundBlurStrength = strength.clamp(0.0, 1.0);
 
     if (enabled) {
+      backgroundRemovalEnabled = false;
       backgroundImageEnabled = false;
     }
 
@@ -177,6 +192,7 @@ class CameraSession extends ChangeNotifier {
 
     if (backgroundImageEnabled) {
       backgroundBlurEnabled = false;
+      backgroundRemovalEnabled = false;
     }
 
     await _pushEffects();
@@ -191,6 +207,7 @@ class CameraSession extends ChangeNotifier {
       backgroundImagePath: backgroundImagePath,
       backgroundBlurEnabled: backgroundBlurEnabled,
       backgroundBlurStrength: backgroundBlurStrength,
+      backgroundRemovalEnabled: backgroundRemovalEnabled,
     );
     if (nativeEffectsAvailable != wasAvailable) notifyListeners();
   }

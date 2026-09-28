@@ -30,6 +30,7 @@ class CamoraVideo {
     String? backgroundImagePath,
     required bool backgroundBlurEnabled,
     required double backgroundBlurStrength,
+    required bool backgroundRemovalEnabled,
   }) async {
     try {
       final available = await _channel.invokeMethod<bool>('setEffects', {
@@ -39,6 +40,7 @@ class CamoraVideo {
         'backgroundImagePath': backgroundImagePath,
         'backgroundBlurEnabled': backgroundBlurEnabled,
         'backgroundBlurStrength': (backgroundBlurStrength * 100).round(),
+        'backgroundRemovalEnabled': backgroundRemovalEnabled,
       });
       return available ?? true;
     } on MissingPluginException {

@@ -39,6 +39,7 @@ static bool g_background_enabled = false;
 static std::string g_background_path;
 static bool g_background_blur_enabled = false;
 static int g_background_blur_strength = 70;
+static bool g_background_removal_enabled = false;
 
 static bool ensure_segmentation_model() {
   if (g_camora_capture.backgroundReplacementAvailable()) return true;
@@ -327,6 +328,8 @@ static void video_method_call_cb(
           fl_value_lookup_string(args, "backgroundBlurEnabled");
       FlValue* background_blur_strength_value =
           fl_value_lookup_string(args, "backgroundBlurStrength");
+      FlValue* background_removal_enabled_value =
+          fl_value_lookup_string(args, "backgroundRemovalEnabled");
 
       if (enabled_value &&
           fl_value_get_type(enabled_value) == FL_VALUE_TYPE_BOOL) {
@@ -362,6 +365,13 @@ static void video_method_call_cb(
         g_background_blur_strength = static_cast<int>(
             fl_value_get_int(background_blur_strength_value));
       }
+
+      if (background_removal_enabled_value &&
+          fl_value_get_type(background_removal_enabled_value) ==
+              FL_VALUE_TYPE_BOOL) {
+        g_background_removal_enabled =
+            fl_value_get_bool(background_removal_enabled_value);
+      }
     }
 
     g_camora_capture.setLowLightEnhancement(
@@ -369,18 +379,26 @@ static void video_method_call_cb(
 
     bool effects_available = true;
 
-    if (g_background_blur_enabled) {
+    if (g_background_blur_enabled ||
+        g_background_removal_enabled ||
+        g_background_enabled) {
       effects_available = ensure_segmentation_model();
     }
+
+    // Segmentation background effects are mutually exclusive.
+    if (g_background_removal_enabled) {
+      g_background_blur_enabled = false;
+      g_background_enabled = false;
+    } else if (g_background_blur_enabled) {
+      g_background_enabled = false;
+    }
+
+    g_camora_capture.setBackgroundRemoval(
+        g_background_removal_enabled && effects_available);
 
     g_camora_capture.setBackgroundBlur(
         g_background_blur_enabled && effects_available,
         g_background_blur_strength);
-
-    if (g_background_blur_enabled) {
-      // Segmentation background effects are mutually exclusive.
-      g_background_enabled = false;
-    }
 
     if (!update_background_replacement()) {
       effects_available = false;

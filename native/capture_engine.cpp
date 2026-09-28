@@ -155,6 +155,18 @@ void CaptureEngine::setBackgroundBlur(
     }
 }
 
+
+void CaptureEngine::setBackgroundRemoval(
+    bool enabled
+) {
+    backgroundRemovalEnabled_ = enabled;
+
+    if (!enabled) {
+        segmenter_.resetTemporalState();
+        previousSubjectMask_.clear();
+    }
+}
+
 void CaptureEngine::submitProcessingFrame(
     const uint8_t* rgba,
     size_t size
@@ -223,7 +235,9 @@ void CaptureEngine::processingLoop() {
         );
 
         const bool segmentationEffectEnabled =
-            backgroundEnabled_ || backgroundBlurEnabled_;
+            backgroundEnabled_ ||
+            backgroundBlurEnabled_ ||
+            backgroundRemovalEnabled_;
 
         if (segmentationEffectEnabled && segmenter_.available()) {
             submitSegmentationFrame(frame.data());
@@ -233,7 +247,9 @@ void CaptureEngine::processingLoop() {
         // worker owns publishing because it has the mask matched to
         // this frame. Publishing here as well would alternate between
         // raw and composited frames, causing background flicker.
-        if (!backgroundEnabled_ && !backgroundBlurEnabled_) {
+        if (!backgroundEnabled_ &&
+            !backgroundBlurEnabled_ &&
+            !backgroundRemovalEnabled_) {
             std::lock_guard<std::mutex> lock(frameMutex_);
 
             if (latestFrame_.size() == frame.size()) {
@@ -300,7 +316,9 @@ void CaptureEngine::segmentationLoop() {
             segmentationPending_ = false;
         }
 
-        if ((!backgroundEnabled_ && !backgroundBlurEnabled_) ||
+        if ((!backgroundEnabled_ &&
+             !backgroundBlurEnabled_ &&
+             !backgroundRemovalEnabled_) ||
             input.empty() ||
             !segmenter_.segment(
                 input.data(),
@@ -403,6 +421,11 @@ void CaptureEngine::segmentationLoop() {
                 sourceFrame.data(),
                 alpha
             );
+        } else if (backgroundRemovalEnabled_) {
+            compositeBackgroundRemoval(
+                sourceFrame.data(),
+                alpha
+            );
         }
 
         {
@@ -416,6 +439,28 @@ void CaptureEngine::segmentationLoop() {
                 );
             }
         }
+    }
+}
+
+void CaptureEngine::compositeBackgroundRemoval(
+    uint8_t* rgba,
+    const std::vector<uint8_t>& alpha
+) {
+    if (!rgba ||
+        alpha.size() != static_cast<size_t>(width_ * height_) ||
+        !backgroundRemovalEnabled_) {
+        return;
+    }
+
+    const size_t pixelCount =
+        static_cast<size_t>(width_ * height_);
+
+    // RGB remains untouched.
+    //
+    // The matched RVM matte becomes the frame's alpha channel so
+    // downstream consumers that support RGBA receive real transparency.
+    for (size_t pixel = 0; pixel < pixelCount; ++pixel) {
+        rgba[pixel * 4 + 3] = alpha[pixel];
     }
 }
 
