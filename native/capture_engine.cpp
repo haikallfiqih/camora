@@ -35,7 +35,6 @@ bool CaptureEngine::start(
 
     subjectMask_.clear();
     subjectAlpha_.clear();
-    segmentationFrame_ = 0;
 
     {
         std::lock_guard<std::mutex> lock(segmentationMutex_);
@@ -119,10 +118,8 @@ void CaptureEngine::setBackgroundReplacement(
 }
 
 void CaptureEngine::submitSegmentationFrame(const uint8_t* rgba) {
-    if (segmentationFrame_++ % 3 != 0) return;
-
     std::unique_lock<std::mutex> lock(segmentationMutex_, std::try_to_lock);
-    if (!lock.owns_lock() || segmentationPending_ || segmentationStop_) return;
+    if (!lock.owns_lock() || segmentationStop_) return;
 
     const int sampleWidth = segmenter_.maskWidth();
     const int sampleHeight = segmenter_.maskHeight();

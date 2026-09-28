@@ -93,7 +93,6 @@ private:
     bool segmentationStop_ = false;
     std::mutex alphaMutex_;
     std::vector<uint8_t> subjectAlpha_;
-    int segmentationFrame_ = 0;
 
     std::mutex frameMutex_;
     std::vector<uint8_t> latestFrame_;

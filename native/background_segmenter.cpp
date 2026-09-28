@@ -9,7 +9,7 @@
 #include <numeric>
 
 namespace {
-constexpr int kMaximumMattingDimension = 512;
+constexpr int kMaximumMattingDimension = 448;
 
 int alignDimension(float dimension) {
     return std::max(32, static_cast<int>(std::round(dimension / 32.0f)) * 32);
@@ -90,7 +90,7 @@ bool BackgroundSegmenter::initialize(
 
     try {
         impl_ = std::make_unique<Impl>();
-        impl_->options.SetIntraOpNumThreads(2);
+        impl_->options.SetIntraOpNumThreads(4);
         impl_->options.SetInterOpNumThreads(1);
         impl_->options.SetGraphOptimizationLevel(
             GraphOptimizationLevel::ORT_ENABLE_ALL);
