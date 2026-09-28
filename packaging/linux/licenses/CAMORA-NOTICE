@@ -1,0 +1,12 @@
+Camora distribution notice
+==========================
+
+Copyright: Taptic Labs and Camora contributors.
+
+The current Camora source tree does not contain a standalone project license
+file. This notice does not grant or imply rights beyond those provided by the
+project copyright holders. A project license must be selected and added before
+publishing Camora as an open-source binary distribution.
+
+Third-party components retain their respective upstream licenses, shipped in
+this package's licenses directory.

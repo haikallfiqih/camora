@@ -25,6 +25,26 @@ size_t elementCount(const std::vector<int64_t>& shape) {
             return count * static_cast<size_t>(dimension);
         });
 }
+
+std::string shortReason(const std::string& message) {
+    if (message.find("Failed to load library") != std::string::npos) {
+        return "CUDA provider libraries could not be loaded";
+    }
+    if (message.find("no CUDA-capable device") != std::string::npos) {
+        return "no compatible NVIDIA GPU was available";
+    }
+    if (message.find("driver version is insufficient") != std::string::npos) {
+        return "the installed NVIDIA driver is incompatible";
+    }
+    const size_t lineEnd = message.find('\n');
+    std::string result = message.substr(0, lineEnd);
+    constexpr size_t maximumLength = 160;
+    if (result.size() > maximumLength) {
+        result.resize(maximumLength);
+        result += "...";
+    }
+    return result.empty() ? "unknown error" : result;
+}
 }  // namespace
 
 struct BackgroundSegmenter::Impl {
@@ -40,6 +60,7 @@ struct BackgroundSegmenter::Impl {
     Ort::MemoryInfo memory;
     std::array<std::vector<float>, 4> recurrentData;
     std::array<std::vector<int64_t>, 4> recurrentShapes;
+    std::string lastError;
 };
 
 BackgroundSegmenter::BackgroundSegmenter() = default;
@@ -96,46 +117,71 @@ bool BackgroundSegmenter::initialize(
             static_cast<float>(frameHeight));
     }
 
-    std::cerr
-        << "[Camora] RVM matting resolution: "
-        << inputWidth_
-        << "x"
-        << inputHeight_
-        << " (source "
-        << frameWidth_
-        << "x"
-        << frameHeight_
-        << ")"
-        << std::endl;
+    std::cerr << "[Camora] RVM matting resolution: "
+              << inputWidth_ << "x" << inputHeight_
+              << " (source " << frameWidth_ << "x" << frameHeight_ << ")"
+              << std::endl;
 
-    try {
-        impl_ = std::make_unique<Impl>();
+    auto createAndWarmUp = [this, &modelPath](
+        InferenceBackend backend,
+        std::string& failure
+    ) {
+        try {
+            impl_ = std::make_unique<Impl>();
+            impl_->inferenceInfo =
+                InferenceBackendSelector::configure(impl_->options, backend);
+            impl_->session = std::make_unique<Ort::Session>(
+                impl_->environment, modelPath.c_str(), impl_->options);
+            resetTemporalState();
+            inputBuffer_.resize(
+                static_cast<size_t>(3 * inputWidth_ * inputHeight_));
 
-        impl_->inferenceInfo =
-            InferenceBackendSelector::configure(
-                impl_->options);
-
-        impl_->session = std::make_unique<Ort::Session>(
-            impl_->environment,
-            modelPath.c_str(),
-            impl_->options);
-
-        std::cerr
-            << "[Camora] RVM initialized with "
-            << impl_->inferenceInfo.provider
-            << std::endl;
-        for (size_t index = 0; index < impl_->recurrentData.size(); ++index) {
-            impl_->recurrentData[index] = {0.0f};
-            impl_->recurrentShapes[index] = {1, 1, 1, 1};
+            std::vector<uint8_t> warmUpFrame(
+                static_cast<size_t>(inputWidth_ * inputHeight_ * 4), 0);
+            for (size_t pixel = 3; pixel < warmUpFrame.size(); pixel += 4) {
+                warmUpFrame[pixel] = 255;
+            }
+            std::vector<float> warmUpMask;
+            if (!segment(
+                    warmUpFrame.data(), inputWidth_, inputHeight_,
+                    warmUpMask)) {
+                failure = impl_->lastError.empty()
+                    ? "inference warm-up failed"
+                    : impl_->lastError;
+                impl_.reset();
+                inputBuffer_.clear();
+                return false;
+            }
+            resetTemporalState();
+            return true;
+        } catch (const Ort::Exception& error) {
+            failure = shortReason(error.what());
+        } catch (const std::exception& error) {
+            failure = shortReason(error.what());
         }
-        inputBuffer_.resize(
-            static_cast<size_t>(3 * inputWidth_ * inputHeight_));
-        return true;
-    } catch (const Ort::Exception& error) {
-        std::cerr << "Could not initialize RVM: " << error.what() << std::endl;
-        reset();
+        impl_.reset();
+        inputBuffer_.clear();
         return false;
+    };
+
+    std::string cudaFailure;
+    if (createAndWarmUp(InferenceBackend::Cuda, cudaFailure)) {
+        std::cerr << "[Camora] AI backend: NVIDIA CUDA" << std::endl;
+        return true;
     }
+
+    std::string cpuFailure;
+    if (createAndWarmUp(InferenceBackend::Cpu, cpuFailure)) {
+        std::cerr << "[Camora] AI backend: CPU" << std::endl;
+        std::cerr << "[Camora] CUDA unavailable: "
+                  << shortReason(cudaFailure) << std::endl;
+        return true;
+    }
+
+    std::cerr << "[Camora] AI backend unavailable: "
+              << shortReason(cpuFailure) << std::endl;
+    reset();
+    return false;
 }
 
 bool BackgroundSegmenter::segment(
@@ -201,7 +247,9 @@ bool BackgroundSegmenter::segment(
         }
         return true;
     } catch (const Ort::Exception& error) {
-        std::cerr << "RVM inference failed: " << error.what() << std::endl;
+        impl_->lastError = shortReason(error.what());
+        std::cerr << "[Camora] RVM inference failed: "
+                  << impl_->lastError << std::endl;
         return false;
     }
 }

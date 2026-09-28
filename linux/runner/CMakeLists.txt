@@ -89,6 +89,10 @@ target_link_libraries(
   ${CMAKE_DL_LIBS}
 )
 
+# DT_RPATH is intentional: it also resolves dependencies of private libraries
+# loaded by ONNX Runtime (CUDA/cuDNN) from the same bundle lib directory.
+target_link_options(${BINARY_NAME} PRIVATE "-Wl,--disable-new-dtags")
+
 add_dependencies(
   ${BINARY_NAME}
   flutter_assemble

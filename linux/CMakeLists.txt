@@ -15,6 +15,7 @@ cmake_policy(SET CMP0063 NEW)
 
 # Load bundled libraries from the lib/ directory relative to the binary.
 set(CMAKE_INSTALL_RPATH "$ORIGIN/lib")
+set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
 
 # Root filesystem for cross-building.
 if(FLUTTER_TARGET_PLATFORM_SYSROOT)
@@ -104,7 +105,8 @@ if(EXISTS "${CAMORA_ONNXRUNTIME_BUNDLE_SOURCE}/libonnxruntime.so")
     COMPONENT Runtime
     FILES_MATCHING
       PATTERN "libonnxruntime.so*"
-      PATTERN "libonnxruntime_providers_*.so*"
+      PATTERN "libonnxruntime_providers_shared.so*"
+      PATTERN "libonnxruntime_providers_cuda.so*"
   )
 endif()
 

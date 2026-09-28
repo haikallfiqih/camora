@@ -19,10 +19,9 @@ struct InferenceInfo {
 class InferenceBackendSelector {
 public:
     static InferenceInfo configure(
-        Ort::SessionOptions& options
-    );
-
-    static const char* name(
+        Ort::SessionOptions& options,
         InferenceBackend backend
     );
+
+    static const char* name(InferenceBackend backend);
 };

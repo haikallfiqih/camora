@@ -50,3 +50,6 @@ app.*.map.json
 # Camora managed AI runtime binaries
 native/third_party/onnxruntime/lib/*
 !native/third_party/onnxruntime/lib/.gitkeep
+native/third_party/nvidia-runtime/lib/*
+!native/third_party/nvidia-runtime/lib/.gitkeep
+/dist/

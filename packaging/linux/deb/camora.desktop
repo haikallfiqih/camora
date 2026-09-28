@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Camora
+Comment=AI camera effects and virtual camera for Linux
+Exec=/opt/camora/camora
+Icon=camora
+Terminal=false
+Categories=AudioVideo;Video;
+StartupNotify=true
+StartupWMClass=dev.tapticlabs.camora
