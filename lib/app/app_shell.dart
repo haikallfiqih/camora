@@ -43,7 +43,7 @@ class _AppShellState extends State<AppShell> {
           animation: Listenable.merge([session, appState]),
           builder: (context, _) => LayoutBuilder(
             builder: (context, constraints) {
-              final expanded = constraints.maxWidth >= 980;
+              final expanded = constraints.maxWidth >= 820;
               return Row(
                 children: [
                   _Sidebar(appState: appState, expanded: expanded),
@@ -58,10 +58,10 @@ class _AppShellState extends State<AppShell> {
                         Expanded(
                           child: Padding(
                             padding: EdgeInsets.fromLTRB(
-                              expanded ? 28 : 20,
-                              24,
-                              expanded ? 28 : 20,
-                              22,
+                              expanded ? 20 : 16,
+                              18,
+                              expanded ? 20 : 16,
+                              18,
                             ),
                             child: _currentPage(),
                           ),
@@ -102,7 +102,7 @@ class _Sidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    width: expanded ? 220 : 76,
+    width: expanded ? 156 : 64,
     decoration: const BoxDecoration(
       color: CamoraColors.sidebar,
       border: Border(right: BorderSide(color: CamoraColors.border)),
@@ -111,8 +111,8 @@ class _Sidebar extends StatelessWidget {
       children: [
         Padding(
           padding: EdgeInsets.symmetric(
-            horizontal: expanded ? 20 : 14,
-            vertical: 24,
+            horizontal: expanded ? 16 : 12,
+            vertical: 18,
           ),
           child: Row(
             mainAxisAlignment: expanded
@@ -130,10 +130,10 @@ class _Sidebar extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 4),
         ...destinations.map(
           (item) => Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             child: _NavigationItem(
               icon: item.$3,
               label: item.$2,
@@ -146,7 +146,7 @@ class _Sidebar extends StatelessWidget {
         const Spacer(),
         if (expanded)
           const Padding(
-            padding: EdgeInsets.all(20),
+            padding: EdgeInsets.all(16),
             child: Text(
               'Native V4L2 preview',
               style: TextStyle(color: CamoraColors.muted, fontSize: 11),
@@ -184,8 +184,8 @@ class _NavigationItem extends StatelessWidget {
         borderRadius: BorderRadius.circular(10),
         child: Padding(
           padding: EdgeInsets.symmetric(
-            horizontal: expanded ? 12 : 0,
-            vertical: 12,
+            horizontal: expanded ? 10 : 0,
+            vertical: 10,
           ),
           child: Row(
             mainAxisAlignment: expanded
@@ -198,10 +198,11 @@ class _NavigationItem extends StatelessWidget {
                 color: selected ? Colors.white : CamoraColors.muted,
               ),
               if (expanded) ...[
-                const SizedBox(width: 12),
+                const SizedBox(width: 8),
                 Text(
                   label,
                   style: TextStyle(
+                    fontSize: 12,
                     color: selected ? Colors.white : const Color(0xFFD2D6DF),
                     fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
                   ),

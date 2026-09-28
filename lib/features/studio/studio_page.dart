@@ -15,18 +15,18 @@ class StudioPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final sideBySide = constraints.maxWidth >= 680;
+        final sideBySide = constraints.maxWidth >= 620;
         return Column(
           children: [
             PageHeading(
               title: 'Studio',
               subtitle: 'Preview and configure your camera.',
               trailing: SizedBox(
-                width: 290,
+                width: 250,
                 child: CameraDeviceField(session: session),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 14),
             Expanded(
               child: sideBySide
                   ? Row(
@@ -36,9 +36,9 @@ class StudioPage extends StatelessWidget {
                           flex: 5,
                           child: _PreviewWorkspace(session: session),
                         ),
-                        const SizedBox(width: 14),
+                        const SizedBox(width: 12),
                         SizedBox(
-                          width: constraints.maxWidth.clamp(680, 1100) * 0.31,
+                          width: constraints.maxWidth.clamp(620, 1000) * 0.32,
                           child: _LiveControls(
                             session: session,
                             appState: appState,
@@ -109,6 +109,7 @@ class _LiveControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => CamoraPanel(
+    padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -120,9 +121,11 @@ class _LiveControls extends StatelessWidget {
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
               ),
             ),
-            TextButton(
+            IconButton(
               onPressed: () => appState.navigate(CamoraPage.camera),
-              child: const Text('Details'),
+              tooltip: 'Open camera settings',
+              visualDensity: VisualDensity.compact,
+              icon: const Icon(Icons.chevron_right_rounded),
             ),
           ],
         ),
