@@ -32,6 +32,9 @@ class CameraSession extends ChangeNotifier {
   bool nativeEffectsAvailable = true;
   String? error;
   String? previewError;
+  bool isVirtualCameraRunning = false;
+  bool virtualCameraLoading = false;
+  String? virtualCameraError;
 
   bool get isPreviewing => textureId != null;
 
@@ -39,7 +42,7 @@ class CameraSession extends ChangeNotifier {
 
   Future<void> refreshCameras() async {
     final restartPreview = isPreviewing;
-    if (restartPreview) await stopPreview();
+    if (restartPreview) await stopPreview(preserveVirtualCamera: true);
     isLoading = true;
     error = null;
     notifyListeners();
@@ -78,7 +81,7 @@ class CameraSession extends ChangeNotifier {
   Future<void> selectCamera(CameraDevice camera) async {
     if (camera.path == selectedCamera?.path) return;
     final restartPreview = isPreviewing;
-    if (restartPreview) await stopPreview();
+    if (restartPreview) await stopPreview(preserveVirtualCamera: true);
 
     selectedCamera = camera;
     controls = const [];
@@ -128,7 +131,7 @@ class CameraSession extends ChangeNotifier {
   Future<void> selectFormat(CameraFormat format) async {
     if (format == selectedFormat) return;
     final restartPreview = isPreviewing;
-    if (restartPreview) await stopPreview();
+    if (restartPreview) await stopPreview(preserveVirtualCamera: true);
     selectedFormat = format;
     notifyListeners();
     if (restartPreview) await startPreview();
@@ -206,6 +209,14 @@ class CameraSession extends ChangeNotifier {
       );
       await _synchronizeEffects();
       await _synchronizeEffects(force: true);
+      if (isVirtualCameraRunning) {
+        try {
+          await CamoraVideo.startVirtualCamera();
+        } catch (exception) {
+          isVirtualCameraRunning = false;
+          virtualCameraError = exception.toString();
+        }
+      }
     } catch (exception) {
       previewError = exception.toString();
     } finally {
@@ -214,12 +225,50 @@ class CameraSession extends ChangeNotifier {
     }
   }
 
-  Future<void> stopPreview() async {
+  Future<void> stopPreview({bool preserveVirtualCamera = false}) async {
     if (!isPreviewing && !previewLoading) return;
     await CamoraVideo.stop();
     textureId = null;
     previewLoading = false;
+    if (!preserveVirtualCamera) isVirtualCameraRunning = false;
     notifyListeners();
+  }
+
+  Future<void> startVirtualCamera() async {
+    if (virtualCameraLoading || isVirtualCameraRunning) return;
+    virtualCameraLoading = true;
+    virtualCameraError = null;
+    notifyListeners();
+    try {
+      if (!isPreviewing) await startPreview();
+      if (!isPreviewing) {
+        throw StateError(previewError ?? 'Camera preview could not start.');
+      }
+      await CamoraVideo.startVirtualCamera();
+      isVirtualCameraRunning = true;
+    } catch (exception) {
+      virtualCameraError = exception.toString();
+      isVirtualCameraRunning = false;
+    } finally {
+      virtualCameraLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> stopVirtualCamera() async {
+    if (virtualCameraLoading || !isVirtualCameraRunning) return;
+    virtualCameraLoading = true;
+    virtualCameraError = null;
+    notifyListeners();
+    try {
+      await CamoraVideo.stopVirtualCamera();
+      isVirtualCameraRunning = false;
+    } catch (exception) {
+      virtualCameraError = exception.toString();
+    } finally {
+      virtualCameraLoading = false;
+      notifyListeners();
+    }
   }
 
   @override

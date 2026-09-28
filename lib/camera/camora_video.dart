@@ -55,4 +55,19 @@ class CamoraVideo {
   static Future<void> stop() async {
     await _channel.invokeMethod<void>('stop');
   }
+
+  static Future<void> startVirtualCamera() async {
+    await _channel.invokeMethod<void>('startVirtualCamera');
+  }
+
+  static Future<void> stopVirtualCamera() async {
+    await _channel.invokeMethod<void>('stopVirtualCamera');
+  }
+
+  static Future<Map<String, Object?>> virtualCameraStatus() async {
+    final result = await _channel.invokeMapMethod<String, Object?>(
+      'virtualCameraStatus',
+    );
+    return result ?? const {};
+  }
 }

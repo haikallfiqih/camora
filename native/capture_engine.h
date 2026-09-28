@@ -2,14 +2,23 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <chrono>
 #include <cstdint>
 #include <mutex>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
 
 #include "background_segmenter.h"
 #include "low_light_processor.h"
+
+struct VideoFrame {
+    std::vector<uint8_t> rgba;
+    int width = 0;
+    int height = 0;
+    uint64_t sequence = 0;
+};
 
 class CaptureEngine {
 public:
@@ -62,8 +71,26 @@ public:
         int destinationSize
     );
 
+    bool waitAndCopyLatestFrame(
+        uint8_t* destination,
+        int destinationSize,
+        uint64_t& sequence,
+        uint64_t afterSequence,
+        std::chrono::milliseconds timeout
+    );
+
+    std::shared_ptr<const VideoFrame> latestFrame() const;
+
+    std::shared_ptr<const VideoFrame> waitForLatestFrame(
+        uint64_t afterSequence,
+        std::chrono::milliseconds timeout
+    );
+
+    void wakeFrameWaiters();
+
     int width() const { return width_; }
     int height() const { return height_; }
+    int fps() const { return fps_; }
     int frameSize() const {
         return width_ * height_ * 4;
     }
@@ -75,9 +102,11 @@ public:
 private:
     void captureLoop();
     void processingLoop();
+    std::shared_ptr<VideoFrame> acquireFrame();
     void submitProcessingFrame(const uint8_t* rgba, size_t size);
+    void publishFrame(std::shared_ptr<VideoFrame> frame);
     void segmentationLoop();
-    void submitSegmentationFrame(const uint8_t* rgba);
+    void submitSegmentationFrame(std::shared_ptr<VideoFrame> frame);
     void compositeBackground(
         uint8_t* rgba,
         const std::vector<uint8_t>& alpha
@@ -123,7 +152,7 @@ private:
     std::thread processingThread_;
     std::mutex processingMutex_;
     std::condition_variable processingCondition_;
-    std::vector<uint8_t> processingInput_;
+    std::shared_ptr<VideoFrame> processingInput_;
     bool processingPending_ = false;
     bool processingStop_ = false;
 
@@ -149,15 +178,30 @@ private:
     // Used only for motion detection during edge refinement.
     // Never blended into the current matte, avoiding temporal ghosting.
     std::vector<float> previousSubjectMask_;
+    std::vector<float> refinedMask_;
+    std::vector<uint8_t> alpha_;
+    std::vector<uint8_t> autoFramingOutput_;
+    std::vector<float> blurWeightedRgb_;
+    std::vector<float> blurWeight_;
+    std::vector<float> blurHorizontalRgb_;
+    std::vector<float> blurHorizontalWeight_;
+    std::vector<float> blurredRgb_;
+    std::vector<float> blurredWeight_;
+    std::vector<uint8_t> blurBackground_;
 
     std::mutex segmentationMutex_;
     std::condition_variable segmentationCondition_;
     std::thread segmentationThread_;
     std::vector<uint8_t> segmentationInput_;
-    std::vector<uint8_t> segmentationFrame_;
+    std::shared_ptr<VideoFrame> segmentationFrame_;
     bool segmentationPending_ = false;
     bool segmentationStop_ = false;
 
-    std::mutex frameMutex_;
-    std::vector<uint8_t> latestFrame_;
+    mutable std::mutex frameMutex_;
+    std::condition_variable frameCondition_;
+    std::shared_ptr<const VideoFrame> latestFrame_;
+    uint64_t latestFrameSequence_ = 0;
+
+    std::mutex framePoolMutex_;
+    std::vector<std::shared_ptr<VideoFrame>> framePool_;
 };

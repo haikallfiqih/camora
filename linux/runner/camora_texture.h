@@ -20,4 +20,6 @@ CamoraTexture* camora_texture_new(
     CaptureEngine* capture
 );
 
+void camora_texture_shutdown(CamoraTexture* texture);
+
 G_END_DECLS

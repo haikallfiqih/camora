@@ -8,6 +8,8 @@
 #include "flutter/generated_plugin_registrant.h"
 #include "camora_texture.h"
 #include "../../native/capture_engine.h"
+#include "../../native/background_media_source.h"
+#include "../../native/virtual_camera_output.h"
 #include "../../native/camora_v4l2.h"
 
 #include <algorithm>
@@ -29,6 +31,8 @@ struct _MyApplication {
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
 static CaptureEngine g_camora_capture;
+static BackgroundMediaSource g_background_media(g_camora_capture);
+static VirtualCameraOutput g_virtual_camera(g_camora_capture);
 
 static FlTextureRegistrar* g_texture_registrar = nullptr;
 static CamoraTexture* g_camora_texture = nullptr;
@@ -37,6 +41,9 @@ static std::atomic<bool> g_texture_notifier_running{false};
 static std::thread g_texture_notifier;
 static bool g_background_enabled = false;
 static std::string g_background_path;
+static std::string g_loaded_background_path;
+static int g_loaded_background_width = 0;
+static int g_loaded_background_height = 0;
 static bool g_background_blur_enabled = false;
 static int g_background_blur_strength = 70;
 static bool g_background_removal_enabled = false;
@@ -68,6 +75,10 @@ static bool ensure_segmentation_model() {
 
 static bool update_background_replacement() {
   if (!g_background_enabled || g_background_path.empty()) {
+    g_background_media.stop();
+    g_loaded_background_path.clear();
+    g_loaded_background_width = 0;
+    g_loaded_background_height = 0;
     g_camora_capture.setBackgroundReplacement(false, {}, 0, 0);
     return true;
   }
@@ -77,66 +88,40 @@ static bool update_background_replacement() {
   const int target_height = g_camora_capture.height();
   if (target_width <= 0 || target_height <= 0) return true;
 
-  g_autoptr(GError) error = nullptr;
-  g_autoptr(GdkPixbuf) original = gdk_pixbuf_new_from_file(
-      g_background_path.c_str(), &error);
-  if (!original) {
-    g_warning("Could not load background image: %s",
-              error ? error->message : "unknown error");
+  if (g_loaded_background_path == g_background_path &&
+      g_loaded_background_width == target_width &&
+      g_loaded_background_height == target_height) {
+    return true;
+  }
+
+  std::string error;
+  if (!g_background_media.start(
+          g_background_path, target_width, target_height, error)) {
+    g_warning("Could not load background media: %s", error.c_str());
     g_camora_capture.setBackgroundReplacement(false, {}, 0, 0);
     return false;
   }
 
-  const int original_width = gdk_pixbuf_get_width(original);
-  const int original_height = gdk_pixbuf_get_height(original);
-  const double scale = std::max(
-      static_cast<double>(target_width) / original_width,
-      static_cast<double>(target_height) / original_height);
-  const int scaled_width = std::max(
-      target_width, static_cast<int>(std::ceil(original_width * scale)));
-  const int scaled_height = std::max(
-      target_height, static_cast<int>(std::ceil(original_height * scale)));
-  g_autoptr(GdkPixbuf) scaled = gdk_pixbuf_scale_simple(
-      original, scaled_width, scaled_height, GDK_INTERP_BILINEAR);
-  if (!scaled) return false;
-
-  const int crop_x = (scaled_width - target_width) / 2;
-  const int crop_y = (scaled_height - target_height) / 2;
-  g_autoptr(GdkPixbuf) image = gdk_pixbuf_new_subpixbuf(
-      scaled, crop_x, crop_y, target_width, target_height);
-  if (!image) return false;
-
-  const int width = target_width;
-  const int height = target_height;
-  const int channels = gdk_pixbuf_get_n_channels(image);
-  const int row_stride = gdk_pixbuf_get_rowstride(image);
-  const guchar* source = gdk_pixbuf_read_pixels(image);
-  if (!source || (channels != 3 && channels != 4)) return false;
-
-  std::vector<uint8_t> pixels(
-      static_cast<size_t>(width * height * 4));
-  for (int y = 0; y < height; ++y) {
-    const guchar* row = source + y * row_stride;
-    for (int x = 0; x < width; ++x) {
-      const guchar* input = row + x * channels;
-      uint8_t* output = pixels.data() + (y * width + x) * 4;
-      output[0] = input[0];
-      output[1] = input[1];
-      output[2] = input[2];
-      output[3] = channels == 4 ? input[3] : 255;
-    }
-  }
-
-  g_camora_capture.setBackgroundReplacement(
-      true, std::move(pixels), width, height);
+  g_loaded_background_path = g_background_path;
+  g_loaded_background_width = target_width;
+  g_loaded_background_height = target_height;
   return true;
 }
 
 static void stop_camora_video() {
+  g_virtual_camera.stop();
+  g_background_media.stop();
+  g_loaded_background_path.clear();
+  g_loaded_background_width = 0;
+  g_loaded_background_height = 0;
   g_texture_notifier_running = false;
 
   if (g_texture_notifier.joinable()) {
     g_texture_notifier.join();
+  }
+
+  if (g_camora_texture) {
+    camora_texture_shutdown(g_camora_texture);
   }
 
   g_camora_capture.stop();
@@ -435,6 +420,52 @@ static void video_method_call_cb(
     fl_method_call_respond(method_call, response, nullptr);
     return;
   }
+  if (strcmp(method, "startVirtualCamera") == 0) {
+    std::string error;
+    const bool started = g_virtual_camera.start(
+        g_camora_capture.width(),
+        g_camora_capture.height(),
+        g_camora_capture.fps(),
+        error);
+
+    if (!started) {
+      g_autoptr(FlMethodResponse) response = FL_METHOD_RESPONSE(
+          fl_method_error_response_new(
+              "virtual_camera_failed", error.c_str(), nullptr));
+      fl_method_call_respond(method_call, response, nullptr);
+      return;
+    }
+
+    g_autoptr(FlValue) result = fl_value_new_bool(true);
+    g_autoptr(FlMethodResponse) response = FL_METHOD_RESPONSE(
+        fl_method_success_response_new(result));
+    fl_method_call_respond(method_call, response, nullptr);
+    return;
+  }
+
+  if (strcmp(method, "stopVirtualCamera") == 0) {
+    g_virtual_camera.stop();
+    g_autoptr(FlMethodResponse) response = FL_METHOD_RESPONSE(
+        fl_method_success_response_new(nullptr));
+    fl_method_call_respond(method_call, response, nullptr);
+    return;
+  }
+
+  if (strcmp(method, "virtualCameraStatus") == 0) {
+    g_autoptr(FlValue) result = fl_value_new_map();
+    fl_value_set_string_take(
+        result, "running", fl_value_new_bool(g_virtual_camera.running()));
+    fl_value_set_string_take(
+        result, "message",
+        fl_value_new_string(g_virtual_camera.statusMessage().c_str()));
+    fl_value_set_string_take(
+        result, "name", fl_value_new_string("Camora Virtual Camera"));
+    g_autoptr(FlMethodResponse) response = FL_METHOD_RESPONSE(
+        fl_method_success_response_new(result));
+    fl_method_call_respond(method_call, response, nullptr);
+    return;
+  }
+
   if (strcmp(method, "stop") == 0) {
     stop_camora_video();
 

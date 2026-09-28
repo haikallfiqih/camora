@@ -32,8 +32,8 @@ class EffectsPage extends StatelessWidget {
     ),
     EffectDefinition(
       CameraEffect.backgroundImage,
-      'Background Image',
-      'Place the subject over an image selected from your computer.',
+      'Virtual Background',
+      'Use an image, animated GIF, SVG, or video behind the subject.',
       Icons.image_outlined,
       available: true,
     ),
@@ -421,6 +421,21 @@ class _EffectSlider extends StatelessWidget {
   );
 }
 
+class _BackgroundMediaPlaceholder extends StatelessWidget {
+  const _BackgroundMediaPlaceholder();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    color: CamoraColors.surfaceRaised,
+    alignment: Alignment.center,
+    child: const Icon(
+      Icons.perm_media_outlined,
+      size: 34,
+      color: CamoraColors.muted,
+    ),
+  );
+}
+
 class _BackgroundImageSetting extends StatelessWidget {
   const _BackgroundImageSetting({required this.appState});
 
@@ -430,15 +445,26 @@ class _BackgroundImageSetting extends StatelessWidget {
     try {
       final result = await FilePicker.pickFile(
         type: FileType.custom,
-        allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
-        dialogTitle: 'Choose a background image',
+        allowedExtensions: const [
+          'jpg',
+          'jpeg',
+          'png',
+          'webp',
+          'gif',
+          'svg',
+          'mp4',
+          'm4v',
+          'mov',
+          'webm',
+        ],
+        dialogTitle: 'Choose a virtual background',
       );
       if (!context.mounted || result == null) return;
       final path = result.path;
       if (path == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('The selected image has no local path.'),
+            content: Text('The selected background has no local path.'),
           ),
         );
         return;
@@ -446,9 +472,9 @@ class _BackgroundImageSetting extends StatelessWidget {
       appState.effects.selectBackgroundImage(path);
     } catch (error) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Could not choose image: $error')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not choose background: $error')),
+      );
     }
   }
 
@@ -456,6 +482,14 @@ class _BackgroundImageSetting extends StatelessWidget {
   Widget build(BuildContext context) {
     final path = appState.effects.backgroundImagePath;
     final fileName = path?.split(Platform.pathSeparator).last;
+    final extension = fileName?.split('.').last.toLowerCase();
+    final hasImagePreview = const {
+      'jpg',
+      'jpeg',
+      'png',
+      'webp',
+      'gif',
+    }.contains(extension);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -467,18 +501,14 @@ class _BackgroundImageSetting extends StatelessWidget {
             borderRadius: BorderRadius.circular(10),
             child: AspectRatio(
               aspectRatio: 16 / 9,
-              child: Image.file(
-                File(path),
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Container(
-                  color: CamoraColors.surfaceRaised,
-                  alignment: Alignment.center,
-                  child: const Icon(
-                    Icons.broken_image_outlined,
-                    color: CamoraColors.muted,
-                  ),
-                ),
-              ),
+              child: hasImagePreview
+                  ? Image.file(
+                      File(path),
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) =>
+                          const _BackgroundMediaPlaceholder(),
+                    )
+                  : const _BackgroundMediaPlaceholder(),
             ),
           ),
           const SizedBox(height: 9),
@@ -501,7 +531,7 @@ class _BackgroundImageSetting extends StatelessWidget {
                     ? Icons.add_photo_alternate_outlined
                     : Icons.swap_horiz_rounded,
               ),
-              label: Text(path == null ? 'Choose image' : 'Replace'),
+              label: Text(path == null ? 'Choose background' : 'Replace'),
             ),
             if (path != null)
               TextButton.icon(
@@ -521,7 +551,7 @@ class _BackgroundImageSetting extends StatelessWidget {
             SizedBox(width: 7),
             Expanded(
               child: Text(
-                'The selected image is applied live while Background Image is enabled.',
+                'Images and SVGs stay still; animated GIFs and videos loop live.',
                 style: TextStyle(
                   color: CamoraColors.muted,
                   fontSize: 11,

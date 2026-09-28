@@ -29,19 +29,25 @@ bool CaptureEngine::start(
     height_ = height;
     fps_ = fps;
 
-    latestFrame_.resize(
-        width_ * height_ * 4
-    );
+    {
+        std::lock_guard<std::mutex> lock(frameMutex_);
+        latestFrame_.reset();
+        latestFrameSequence_ = 0;
+    }
+    {
+        std::lock_guard<std::mutex> lock(framePoolMutex_);
+        framePool_.clear();
+    }
 
     subjectMask_.clear();
     previousSubjectMask_.clear();
-    segmentationFrame_.clear();
+    segmentationFrame_.reset();
 
     {
         std::lock_guard<std::mutex> lock(processingMutex_);
         processingPending_ = false;
         processingStop_ = false;
-        processingInput_.clear();
+        processingInput_.reset();
     }
 
     {
@@ -72,6 +78,7 @@ bool CaptureEngine::start(
 
 void CaptureEngine::stop() {
     running_ = false;
+    frameCondition_.notify_all();
 
     if (thread_.joinable()) {
         thread_.join();
@@ -190,41 +197,48 @@ void CaptureEngine::resetAutoFraming() {
     autoFrameZoom_ = 1.0f;
 }
 
+std::shared_ptr<VideoFrame> CaptureEngine::acquireFrame() {
+    const size_t required = static_cast<size_t>(width_) * height_ * 4;
+    std::lock_guard<std::mutex> lock(framePoolMutex_);
+    for (const auto& frame : framePool_) {
+        if (frame.use_count() == 1) {
+            frame->rgba.resize(required);
+            frame->width = width_;
+            frame->height = height_;
+            frame->sequence = 0;
+            return frame;
+        }
+    }
+
+    auto frame = std::make_shared<VideoFrame>();
+    frame->rgba.resize(required);
+    frame->width = width_;
+    frame->height = height_;
+    framePool_.push_back(frame);
+    return frame;
+}
+
 void CaptureEngine::submitProcessingFrame(
     const uint8_t* rgba,
     size_t size
 ) {
-    if (!rgba || size == 0) {
-        return;
-    }
+    if (!rgba || size == 0) return;
+
+    auto frame = acquireFrame();
+    if (frame->rgba.size() != size) return;
+    std::memcpy(frame->rgba.data(), rgba, size);
 
     std::lock_guard<std::mutex> lock(processingMutex_);
+    if (processingStop_) return;
 
-    if (processingStop_) {
-        return;
-    }
-
-    // One pending slot only.
-    //
-    // If processing is behind, overwrite the old pending frame
-    // with the newest camera frame. This intentionally drops
-    // processing frames instead of accumulating latency.
-    if (processingInput_.size() != size) {
-        processingInput_.resize(size);
-    }
-
-    std::memcpy(
-        processingInput_.data(),
-        rgba,
-        size
-    );
-
+    // One owning pending slot. Replacing it drops stale work without latency.
+    processingInput_ = std::move(frame);
     processingPending_ = true;
     processingCondition_.notify_one();
 }
 
 void CaptureEngine::processingLoop() {
-    std::vector<uint8_t> frame;
+    std::shared_ptr<VideoFrame> frame;
 
     while (true) {
         {
@@ -242,17 +256,17 @@ void CaptureEngine::processingLoop() {
                 return;
             }
 
-            frame.swap(processingInput_);
+            frame = std::move(processingInput_);
             processingPending_ = false;
         }
 
-        if (frame.empty()) {
+        if (!frame || frame->rgba.empty()) {
             continue;
         }
 
         // Heavy processing happens WITHOUT frameMutex_.
         lowLightProcessor_.process(
-            frame.data(),
+            frame->rgba.data(),
             width_,
             height_
         );
@@ -264,7 +278,7 @@ void CaptureEngine::processingLoop() {
             autoFramingEnabled_;
 
         if (segmentationEffectEnabled && segmenter_.available()) {
-            submitSegmentationFrame(frame.data());
+            submitSegmentationFrame(std::move(frame));
         }
 
         // When background replacement is enabled, the segmentation
@@ -275,20 +289,16 @@ void CaptureEngine::processingLoop() {
             !backgroundBlurEnabled_ &&
             !backgroundRemovalEnabled_ &&
             !autoFramingEnabled_) {
-            std::lock_guard<std::mutex> lock(frameMutex_);
-
-            if (latestFrame_.size() == frame.size()) {
-                std::memcpy(
-                    latestFrame_.data(),
-                    frame.data(),
-                    frame.size()
-                );
-            }
+            publishFrame(std::move(frame));
         }
     }
 }
 
-void CaptureEngine::submitSegmentationFrame(const uint8_t* rgba) {
+void CaptureEngine::submitSegmentationFrame(
+    std::shared_ptr<VideoFrame> frame
+) {
+    if (!frame || frame->rgba.empty()) return;
+
     std::unique_lock<std::mutex> lock(segmentationMutex_, std::try_to_lock);
     if (!lock.owns_lock() || segmentationStop_) return;
 
@@ -303,7 +313,8 @@ void CaptureEngine::submitSegmentationFrame(const uint8_t* rgba) {
         for (int x = 0; x < sampleWidth; ++x) {
             const int sourceX = std::min(
                 width_ - 1, x * width_ / sampleWidth);
-            const uint8_t* source = rgba + (sourceY * width_ + sourceX) * 4;
+            const uint8_t* source = frame->rgba.data() +
+                (sourceY * width_ + sourceX) * 4;
             uint8_t* destination = segmentationInput_.data() +
                 (y * sampleWidth + x) * 4;
             destination[0] = source[0];
@@ -312,14 +323,9 @@ void CaptureEngine::submitSegmentationFrame(const uint8_t* rgba) {
             destination[3] = 255;
         }
     }
-    const size_t fullFrameSize =
-        static_cast<size_t>(width_ * height_ * 4);
 
-    segmentationFrame_.assign(
-        rgba,
-        rgba + fullFrameSize
-    );
-
+    // The downsample and full-resolution image share this exact owner.
+    segmentationFrame_ = std::move(frame);
     segmentationPending_ = true;
     lock.unlock();
     segmentationCondition_.notify_one();
@@ -327,7 +333,14 @@ void CaptureEngine::submitSegmentationFrame(const uint8_t* rgba) {
 
 void CaptureEngine::segmentationLoop() {
     std::vector<uint8_t> input;
-    std::vector<uint8_t> sourceFrame;
+    std::shared_ptr<VideoFrame> sourceFrame;
+#ifndef NDEBUG
+    using MetricsClock = std::chrono::steady_clock;
+    auto metricsStart = MetricsClock::now();
+    std::chrono::nanoseconds processingTime{0};
+    std::chrono::nanoseconds publicationTime{0};
+    uint64_t processedFrames = 0;
+#endif
 
     while (true) {
         {
@@ -337,9 +350,14 @@ void CaptureEngine::segmentationLoop() {
             });
             if (segmentationStop_) return;
             input.swap(segmentationInput_);
-            sourceFrame.swap(segmentationFrame_);
+            sourceFrame = std::move(segmentationFrame_);
             segmentationPending_ = false;
         }
+
+
+#ifndef NDEBUG
+        const auto processingStart = MetricsClock::now();
+#endif
 
         if ((!backgroundEnabled_ &&
              !backgroundBlurEnabled_ &&
@@ -361,7 +379,7 @@ void CaptureEngine::segmentationLoop() {
         const bool hasPreviousMask =
             previousSubjectMask_.size() == subjectMask_.size();
 
-        std::vector<float> refinedMask(subjectMask_.size());
+        refinedMask_.resize(subjectMask_.size());
 
         for (size_t i = 0; i < subjectMask_.size(); ++i) {
             const float current = std::clamp(
@@ -394,14 +412,14 @@ void CaptureEngine::segmentationLoop() {
                     smooth * 0.25f;
             }
 
-            refinedMask[i] = refined;
+            refinedMask_[i] = refined;
         }
 
         // Save CURRENT raw RVM mask only for motion detection next frame.
         // Do not save refinedMask here.
         previousSubjectMask_ = subjectMask_;
 
-        std::vector<uint8_t> alpha(static_cast<size_t>(width_ * height_));
+        alpha_.resize(static_cast<size_t>(width_ * height_));
         for (int y = 0; y < height_; ++y) {
             const float maskY = height_ > 1
                 ? y * (maskHeight - 1.0f) / (height_ - 1.0f)
@@ -416,41 +434,41 @@ void CaptureEngine::segmentationLoop() {
                 const int x0 = static_cast<int>(maskX);
                 const int x1 = std::min(maskWidth - 1, x0 + 1);
                 const float fx = maskX - x0;
-                const float top = refinedMask[y0 * maskWidth + x0] *
+                const float top = refinedMask_[y0 * maskWidth + x0] *
                         (1.0f - fx) +
-                    refinedMask[y0 * maskWidth + x1] * fx;
-                const float bottom = refinedMask[y1 * maskWidth + x0] *
+                    refinedMask_[y0 * maskWidth + x1] * fx;
+                const float bottom = refinedMask_[y1 * maskWidth + x0] *
                         (1.0f - fx) +
-                    refinedMask[y1 * maskWidth + x1] * fx;
+                    refinedMask_[y1 * maskWidth + x1] * fx;
                 const float probability = top * (1.0f - fy) + bottom * fy;
                 const float confidence = std::clamp(
                     (probability - 0.03f) / 0.94f, 0.0f, 1.0f);
                 const float feathered = confidence * confidence *
                     (3.0f - 2.0f * confidence);
-                alpha[y * width_ + x] = static_cast<uint8_t>(
+                alpha_[y * width_ + x] = static_cast<uint8_t>(
                     feathered * 255.0f);
             }
         }
 
-        if (sourceFrame.size() !=
+        if (!sourceFrame || sourceFrame->rgba.size() !=
             static_cast<size_t>(width_ * height_ * 4)) {
             continue;
         }
 
         if (backgroundEnabled_) {
             compositeBackground(
-                sourceFrame.data(),
-                alpha
+                sourceFrame->rgba.data(),
+                alpha_
             );
         } else if (backgroundBlurEnabled_) {
             compositeBackgroundBlur(
-                sourceFrame.data(),
-                alpha
+                sourceFrame->rgba.data(),
+                alpha_
             );
         } else if (backgroundRemovalEnabled_) {
             compositeBackgroundRemoval(
-                sourceFrame.data(),
-                alpha
+                sourceFrame->rgba.data(),
+                alpha_
             );
         }
 
@@ -459,24 +477,43 @@ void CaptureEngine::segmentationLoop() {
         // can be combined with subject tracking.
         if (autoFramingEnabled_) {
             applyAutoFraming(
-                sourceFrame.data(),
-                refinedMask,
+                sourceFrame->rgba.data(),
+                refinedMask_,
                 maskWidth,
                 maskHeight
             );
         }
 
-        {
-            std::lock_guard<std::mutex> lock(frameMutex_);
 
-            if (latestFrame_.size() == sourceFrame.size()) {
-                std::memcpy(
-                    latestFrame_.data(),
-                    sourceFrame.data(),
-                    sourceFrame.size()
-                );
-            }
+#ifndef NDEBUG
+        const auto publicationStart = MetricsClock::now();
+#endif
+        publishFrame(std::move(sourceFrame));
+#ifndef NDEBUG
+        const auto now = MetricsClock::now();
+        processingTime += std::chrono::duration_cast<std::chrono::nanoseconds>(
+            publicationStart - processingStart);
+        publicationTime += std::chrono::duration_cast<std::chrono::nanoseconds>(
+            now - publicationStart);
+        ++processedFrames;
+        const auto elapsed = now - metricsStart;
+        if (elapsed >= std::chrono::seconds(1)) {
+            const double processAverageMs = processedFrames == 0 ? 0.0 :
+                std::chrono::duration<double, std::milli>(processingTime).count() /
+                    processedFrames;
+            const double publishAverageMs = processedFrames == 0 ? 0.0 :
+                std::chrono::duration<double, std::milli>(publicationTime).count() /
+                    processedFrames;
+            std::clog << "[Camora processing] frames=" << processedFrames
+                      << " effect_avg=" << processAverageMs << "ms"
+                      << " publish_avg=" << publishAverageMs << "ms"
+                      << std::endl;
+            metricsStart = now;
+            processingTime = std::chrono::nanoseconds::zero();
+            publicationTime = std::chrono::nanoseconds::zero();
+            processedFrames = 0;
         }
+#endif
     }
 }
 
@@ -719,7 +756,7 @@ void CaptureEngine::applyAutoFraming(
     // virtual-camera sink remain stable.
     // --------------------------------------------------------
 
-    std::vector<uint8_t> framed(
+    autoFramingOutput_.resize(
         static_cast<size_t>(width_ * height_ * 4));
 
     const float xScale =
@@ -789,7 +826,7 @@ void CaptureEngine::applyAutoFraming(
                     y1 * width_ + x1) * 4;
 
             uint8_t* out =
-                framed.data() +
+                autoFramingOutput_.data() +
                 static_cast<size_t>(
                     y * width_ + x) * 4;
 
@@ -819,8 +856,8 @@ void CaptureEngine::applyAutoFraming(
 
     std::memcpy(
         rgba,
-        framed.data(),
-        framed.size()
+        autoFramingOutput_.data(),
+        autoFramingOutput_.size()
     );
 }
 
@@ -872,8 +909,8 @@ void CaptureEngine::compositeBackgroundBlur(
     // This is important:
     // foreground colours never become part of the blur kernel.
     // We blur RGB * weight and weight independently, then normalize.
-    std::vector<float> weightedRgb(blurPixels * 3, 0.0f);
-    std::vector<float> weight(blurPixels, 0.0f);
+    blurWeightedRgb_.resize(blurPixels * 3);
+    blurWeight_.resize(blurPixels);
 
     for (int y = 0; y < blurHeight; ++y) {
         const int sourceY = std::min(
@@ -906,13 +943,13 @@ void CaptureEngine::compositeBackgroundBlur(
             float backgroundWeight = 1.0f - subject;
             backgroundWeight *= backgroundWeight;
 
-            weight[smallPixel] = backgroundWeight;
+            blurWeight_[smallPixel] = backgroundWeight;
 
-            weightedRgb[smallPixel * 3 + 0] =
+            blurWeightedRgb_[smallPixel * 3 + 0] =
                 source[0] * backgroundWeight;
-            weightedRgb[smallPixel * 3 + 1] =
+            blurWeightedRgb_[smallPixel * 3 + 1] =
                 source[1] * backgroundWeight;
-            weightedRgb[smallPixel * 3 + 2] =
+            blurWeightedRgb_[smallPixel * 3 + 2] =
                 source[2] * backgroundWeight;
         }
     }
@@ -926,11 +963,10 @@ void CaptureEngine::compositeBackgroundBlur(
     );
 
     // Blur weighted RGB and background weight together.
-    std::vector<float> horizontalRgb(blurPixels * 3, 0.0f);
-    std::vector<float> horizontalWeight(blurPixels, 0.0f);
-
-    std::vector<float> blurredRgb(blurPixels * 3, 0.0f);
-    std::vector<float> blurredWeight(blurPixels, 0.0f);
+    blurHorizontalRgb_.resize(blurPixels * 3);
+    blurHorizontalWeight_.resize(blurPixels);
+    blurredRgb_.resize(blurPixels * 3);
+    blurredWeight_.resize(blurPixels);
 
     // Horizontal pass.
     for (int y = 0; y < blurHeight; ++y) {
@@ -945,11 +981,11 @@ void CaptureEngine::compositeBackgroundBlur(
                 static_cast<size_t>(
                     y * blurWidth + sx);
 
-            weightSum += weight[p];
+            weightSum += blurWeight_[p];
 
-            rgbSum[0] += weightedRgb[p * 3 + 0];
-            rgbSum[1] += weightedRgb[p * 3 + 1];
-            rgbSum[2] += weightedRgb[p * 3 + 2];
+            rgbSum[0] += blurWeightedRgb_[p * 3 + 0];
+            rgbSum[1] += blurWeightedRgb_[p * 3 + 1];
+            rgbSum[2] += blurWeightedRgb_[p * 3 + 2];
         }
 
         for (int x = 0; x < blurWidth; ++x) {
@@ -957,11 +993,11 @@ void CaptureEngine::compositeBackgroundBlur(
                 static_cast<size_t>(
                     y * blurWidth + x);
 
-            horizontalWeight[p] = weightSum;
+            blurHorizontalWeight_[p] = weightSum;
 
-            horizontalRgb[p * 3 + 0] = rgbSum[0];
-            horizontalRgb[p * 3 + 1] = rgbSum[1];
-            horizontalRgb[p * 3 + 2] = rgbSum[2];
+            blurHorizontalRgb_[p * 3 + 0] = rgbSum[0];
+            blurHorizontalRgb_[p * 3 + 1] = rgbSum[1];
+            blurHorizontalRgb_[p * 3 + 2] = rgbSum[2];
 
             const int removeX =
                 std::clamp(
@@ -986,14 +1022,14 @@ void CaptureEngine::compositeBackgroundBlur(
                     y * blurWidth + addX);
 
             weightSum +=
-                weight[add] - weight[remove];
+                blurWeight_[add] - blurWeight_[remove];
 
             for (int channel = 0;
                  channel < 3;
                  ++channel) {
                 rgbSum[channel] +=
-                    weightedRgb[add * 3 + channel] -
-                    weightedRgb[remove * 3 + channel];
+                    blurWeightedRgb_[add * 3 + channel] -
+                    blurWeightedRgb_[remove * 3 + channel];
             }
         }
     }
@@ -1011,11 +1047,11 @@ void CaptureEngine::compositeBackgroundBlur(
                 static_cast<size_t>(
                     sy * blurWidth + x);
 
-            weightSum += horizontalWeight[p];
+            weightSum += blurHorizontalWeight_[p];
 
-            rgbSum[0] += horizontalRgb[p * 3 + 0];
-            rgbSum[1] += horizontalRgb[p * 3 + 1];
-            rgbSum[2] += horizontalRgb[p * 3 + 2];
+            rgbSum[0] += blurHorizontalRgb_[p * 3 + 0];
+            rgbSum[1] += blurHorizontalRgb_[p * 3 + 1];
+            rgbSum[2] += blurHorizontalRgb_[p * 3 + 2];
         }
 
         for (int y = 0; y < blurHeight; ++y) {
@@ -1023,11 +1059,11 @@ void CaptureEngine::compositeBackgroundBlur(
                 static_cast<size_t>(
                     y * blurWidth + x);
 
-            blurredWeight[p] = weightSum;
+            blurredWeight_[p] = weightSum;
 
-            blurredRgb[p * 3 + 0] = rgbSum[0];
-            blurredRgb[p * 3 + 1] = rgbSum[1];
-            blurredRgb[p * 3 + 2] = rgbSum[2];
+            blurredRgb_[p * 3 + 0] = rgbSum[0];
+            blurredRgb_[p * 3 + 1] = rgbSum[1];
+            blurredRgb_[p * 3 + 2] = rgbSum[2];
 
             const int removeY =
                 std::clamp(
@@ -1052,31 +1088,31 @@ void CaptureEngine::compositeBackgroundBlur(
                     addY * blurWidth + x);
 
             weightSum +=
-                horizontalWeight[add] -
-                horizontalWeight[remove];
+                blurHorizontalWeight_[add] -
+                blurHorizontalWeight_[remove];
 
             for (int channel = 0;
                  channel < 3;
                  ++channel) {
                 rgbSum[channel] +=
-                    horizontalRgb[add * 3 + channel] -
-                    horizontalRgb[remove * 3 + channel];
+                    blurHorizontalRgb_[add * 3 + channel] -
+                    blurHorizontalRgb_[remove * 3 + channel];
             }
         }
     }
 
     // Reconstruct normalized background colour.
-    std::vector<uint8_t> background(blurPixels * 3);
+    blurBackground_.resize(blurPixels * 3);
 
     for (size_t pixel = 0; pixel < blurPixels; ++pixel) {
-        const float w = blurredWeight[pixel];
+        const float w = blurredWeight_[pixel];
 
         if (w > 0.001f) {
             for (int channel = 0; channel < 3; ++channel) {
-                background[pixel * 3 + channel] =
+                blurBackground_[pixel * 3 + channel] =
                     static_cast<uint8_t>(
                         std::clamp(
-                            blurredRgb[pixel * 3 + channel] / w,
+                            blurredRgb_[pixel * 3 + channel] / w,
                             0.0f,
                             255.0f
                         )
@@ -1085,9 +1121,9 @@ void CaptureEngine::compositeBackgroundBlur(
         } else {
             // This normally only happens deep inside a large subject.
             // It is hidden by subject alpha anyway.
-            background[pixel * 3 + 0] = 0;
-            background[pixel * 3 + 1] = 0;
-            background[pixel * 3 + 2] = 0;
+            blurBackground_[pixel * 3 + 0] = 0;
+            blurBackground_[pixel * 3 + 1] = 0;
+            blurBackground_[pixel * 3 + 2] = 0;
         }
     }
 
@@ -1114,7 +1150,7 @@ void CaptureEngine::compositeBackgroundBlur(
                 rgba + pixel * 4;
 
             const uint8_t* blurredBackground =
-                background.data() +
+                blurBackground_.data() +
                 backgroundPixel * 3;
 
             const int subjectAlpha = alpha[pixel];
@@ -1191,36 +1227,70 @@ void CaptureEngine::compositeBackground(
         }
     }
 }
+void CaptureEngine::publishFrame(
+    std::shared_ptr<VideoFrame> frame
+) {
+    if (!frame || frame->rgba.empty()) return;
+    {
+        std::lock_guard<std::mutex> lock(frameMutex_);
+        frame->sequence = ++latestFrameSequence_;
+        latestFrame_ = std::move(frame);
+    }
+    frameCondition_.notify_all();
+}
+
+std::shared_ptr<const VideoFrame> CaptureEngine::latestFrame() const {
+    std::lock_guard<std::mutex> lock(frameMutex_);
+    return latestFrame_;
+}
+
+std::shared_ptr<const VideoFrame> CaptureEngine::waitForLatestFrame(
+    uint64_t afterSequence,
+    std::chrono::milliseconds timeout
+) {
+    std::unique_lock<std::mutex> lock(frameMutex_);
+    frameCondition_.wait_for(lock, timeout, [this, afterSequence] {
+        return !running_ || latestFrameSequence_ > afterSequence;
+    });
+    if (!running_ || !latestFrame_ ||
+        latestFrame_->sequence <= afterSequence) {
+        return {};
+    }
+    return latestFrame_;
+}
+
 bool CaptureEngine::copyLatestFrame(
     uint8_t* destination,
     int destinationSize
 ) {
-    if (!destination) {
+    if (!destination) return false;
+    auto frame = latestFrame();
+    if (!frame || destinationSize < static_cast<int>(frame->rgba.size())) {
         return false;
     }
-
-    const int required =
-        width_ * height_ * 4;
-
-    if (destinationSize < required) {
-        return false;
-    }
-
-    std::lock_guard<std::mutex> lock(
-        frameMutex_
-    );
-
-    if (latestFrame_.empty()) {
-        return false;
-    }
-
-    std::memcpy(
-        destination,
-        latestFrame_.data(),
-        required
-    );
-
+    std::memcpy(destination, frame->rgba.data(), frame->rgba.size());
     return true;
+}
+
+bool CaptureEngine::waitAndCopyLatestFrame(
+    uint8_t* destination,
+    int destinationSize,
+    uint64_t& sequence,
+    uint64_t afterSequence,
+    std::chrono::milliseconds timeout
+) {
+    if (!destination) return false;
+    auto frame = waitForLatestFrame(afterSequence, timeout);
+    if (!frame || destinationSize < static_cast<int>(frame->rgba.size())) {
+        return false;
+    }
+    std::memcpy(destination, frame->rgba.data(), frame->rgba.size());
+    sequence = frame->sequence;
+    return true;
+}
+
+void CaptureEngine::wakeFrameWaiters() {
+    frameCondition_.notify_all();
 }
 
 void CaptureEngine::captureLoop() {

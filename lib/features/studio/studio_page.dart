@@ -349,7 +349,7 @@ class _StudioEffects extends StatelessWidget {
   String _effectName(CameraEffect effect) => switch (effect) {
     CameraEffect.backgroundBlur => 'Background Blur',
     CameraEffect.backgroundRemoval => 'Background Removal',
-    CameraEffect.backgroundImage => 'Background Image',
+    CameraEffect.backgroundImage => 'Virtual Background',
     CameraEffect.autoFraming => 'Auto Framing',
     CameraEffect.lowLightEnhancement => 'Low Light',
   };
@@ -372,15 +372,26 @@ class _StudioBackgroundImageControl extends StatelessWidget {
     try {
       final result = await FilePicker.pickFile(
         type: FileType.custom,
-        allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
-        dialogTitle: 'Choose a background image',
+        allowedExtensions: const [
+          'jpg',
+          'jpeg',
+          'png',
+          'webp',
+          'gif',
+          'svg',
+          'mp4',
+          'm4v',
+          'mov',
+          'webm',
+        ],
+        dialogTitle: 'Choose a virtual background',
       );
       if (!context.mounted || result == null) return;
       final path = result.path;
       if (path == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('The selected image has no local path.'),
+            content: Text('The selected background has no local path.'),
           ),
         );
         return;
@@ -388,9 +399,9 @@ class _StudioBackgroundImageControl extends StatelessWidget {
       appState.effects.selectBackgroundImage(path);
     } catch (error) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Could not choose image: $error')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not choose background: $error')),
+      );
     }
   }
 
@@ -417,7 +428,7 @@ class _StudioBackgroundImageControl extends StatelessWidget {
                     : Icons.image_search_outlined,
                 size: 16,
               ),
-              label: Text(path == null ? 'Choose image' : 'Replace'),
+              label: Text(path == null ? 'Choose background' : 'Replace'),
             ),
             if (path != null)
               TextButton(

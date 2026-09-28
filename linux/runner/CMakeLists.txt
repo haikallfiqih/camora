@@ -38,6 +38,7 @@ pkg_check_modules(
   IMPORTED_TARGET
   gstreamer-1.0
   gstreamer-app-1.0
+  gstreamer-video-1.0
 )
 
 add_executable(${BINARY_NAME}
@@ -48,6 +49,8 @@ add_executable(${BINARY_NAME}
 
   "../../native/camora_v4l2.cpp"
   "../../native/capture_engine.cpp"
+  "../../native/background_media_source.cpp"
+  "../../native/virtual_camera_output.cpp"
   "../../native/low_light_processor.cpp"
   "../../native/background_segmenter.cpp"
   "../../native/inference_backend.cpp"
