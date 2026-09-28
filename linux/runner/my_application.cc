@@ -301,6 +301,8 @@ static void video_method_call_cb(
     FlValue* args = fl_method_call_get_args(method_call);
     bool low_light_enabled = false;
     int low_light_strength = 50;
+    bool camera_mirrored = false;
+    bool background_mirrored = false;
 
     if (args && fl_value_get_type(args) == FL_VALUE_TYPE_MAP) {
       FlValue* enabled_value =
@@ -309,6 +311,10 @@ static void video_method_call_cb(
           fl_value_lookup_string(args, "lowLightStrength");
       FlValue* background_enabled_value =
           fl_value_lookup_string(args, "backgroundImageEnabled");
+      FlValue* camera_mirrored_value =
+          fl_value_lookup_string(args, "cameraMirrored");
+      FlValue* background_mirrored_value =
+          fl_value_lookup_string(args, "backgroundMirrored");
       FlValue* background_path_value =
           fl_value_lookup_string(args, "backgroundImagePath");
       FlValue* background_blur_enabled_value =
@@ -335,6 +341,14 @@ static void video_method_call_cb(
           fl_value_get_type(background_enabled_value) == FL_VALUE_TYPE_BOOL) {
         g_background_enabled =
             fl_value_get_bool(background_enabled_value);
+      }
+      if (camera_mirrored_value &&
+          fl_value_get_type(camera_mirrored_value) == FL_VALUE_TYPE_BOOL) {
+        camera_mirrored = fl_value_get_bool(camera_mirrored_value);
+      }
+      if (background_mirrored_value &&
+          fl_value_get_type(background_mirrored_value) == FL_VALUE_TYPE_BOOL) {
+        background_mirrored = fl_value_get_bool(background_mirrored_value);
       }
       if (background_path_value &&
           fl_value_get_type(background_path_value) == FL_VALUE_TYPE_STRING) {
@@ -381,6 +395,8 @@ static void video_method_call_cb(
 
     g_camora_capture.setLowLightEnhancement(
         low_light_enabled, low_light_strength);
+    g_camora_capture.setCameraMirrored(camera_mirrored);
+    g_camora_capture.setBackgroundMirrored(background_mirrored);
 
     bool effects_available = true;
 

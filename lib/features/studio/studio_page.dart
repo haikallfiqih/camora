@@ -131,6 +131,15 @@ class _LiveControlsState extends State<_LiveControls> {
             onOpenPage: () => widget.appState.navigate(CamoraPage.camera),
             child: ListView(
               children: [
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  secondary: const Icon(Icons.flip_rounded, size: 18),
+                  title: const Text('Mirror camera'),
+                  value: widget.appState.effects.cameraMirrored,
+                  onChanged: widget.appState.effects.setCameraMirrored,
+                ),
+                const Divider(height: 12),
                 CameraControlList(session: widget.session, compact: true),
               ],
             ),
@@ -411,6 +420,14 @@ class _StudioBackgroundImageControl extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          secondary: const Icon(Icons.flip_rounded, size: 18),
+          title: const Text('Mirror background'),
+          value: appState.effects.backgroundMirrored,
+          onChanged: appState.effects.setBackgroundMirrored,
+        ),
         if (path != null)
           Text(
             path.split('/').last,

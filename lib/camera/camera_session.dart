@@ -180,6 +180,8 @@ class CameraSession extends ChangeNotifier {
         lowLightStrength: effects.lowLightStrength,
         backgroundImageEnabled: effects.backgroundMode == BackgroundMode.image,
         backgroundImagePath: effects.backgroundImagePath,
+        cameraMirrored: effects.cameraMirrored,
+        backgroundMirrored: effects.backgroundMirrored,
         backgroundBlurEnabled: effects.backgroundMode == BackgroundMode.blur,
         backgroundBlurStrength: effects.backgroundBlurStrength,
         backgroundRemovalEnabled:

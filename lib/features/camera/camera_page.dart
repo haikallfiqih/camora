@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../app/app_state.dart';
 import '../../app/camora_theme.dart';
 import '../../camera/camera_format.dart';
 import '../../camera/camera_session.dart';
@@ -7,8 +8,9 @@ import '../../widgets/camera_control_widgets.dart';
 import '../../widgets/ui_components.dart';
 
 class CameraPage extends StatelessWidget {
-  const CameraPage({required this.session, super.key});
+  const CameraPage({required this.session, required this.appState, super.key});
   final CameraSession session;
+  final AppState appState;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -43,6 +45,18 @@ class CameraPage extends StatelessWidget {
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
+                  const SizedBox(height: 10),
+                  const Divider(height: 1),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Mirror camera'),
+                    subtitle: const Text(
+                      'Reflect the camera and person horizontally.',
+                    ),
+                    secondary: const Icon(Icons.flip_rounded),
+                    value: appState.effects.cameraMirrored,
+                    onChanged: appState.effects.setCameraMirrored,
+                  ),
                 ],
               ),
             ),

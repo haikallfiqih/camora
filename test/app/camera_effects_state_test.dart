@@ -53,6 +53,21 @@ void main() {
       expect(effects.lowLightStrength, 0.61);
     });
 
+    test('camera and background mirrors remain independent', () {
+      final effects = CameraEffectsState();
+      addTearDown(effects.dispose);
+
+      effects.setCameraMirrored(true);
+      expect(effects.cameraMirrored, isTrue);
+      expect(effects.backgroundMirrored, isFalse);
+
+      effects.setBackgroundMirrored(true);
+      effects.setCameraMirrored(false);
+      expect(effects.cameraMirrored, isFalse);
+      expect(effects.backgroundMirrored, isTrue);
+      expect(effects.snapshot.backgroundMirrored, isTrue);
+    });
+
     test(
       'background image cannot enable without a path and clears atomically',
       () {

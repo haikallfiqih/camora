@@ -80,7 +80,7 @@ class _AppShellState extends State<AppShell> {
 
   Widget _currentPage() => switch (appState.currentPage) {
     CamoraPage.studio => StudioPage(session: session, appState: appState),
-    CamoraPage.camera => CameraPage(session: session),
+    CamoraPage.camera => CameraPage(session: session, appState: appState),
     CamoraPage.effects => EffectsPage(session: session, appState: appState),
     CamoraPage.virtualCamera => VirtualCameraPage(session: session),
     CamoraPage.settings => const SettingsPage(),
@@ -122,14 +122,14 @@ class _Sidebar extends StatelessWidget {
               const _BrandMark(),
               if (expanded) ...[
                 const SizedBox(width: 8),
-                const Flexible(
-                  child: Text(
-                    'Camora',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-                  ),
-                ),
+                // const Flexible(
+                //   child: Text(
+                //     'Camora',
+                //     maxLines: 1,
+                //     overflow: TextOverflow.ellipsis,
+                //     style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                //   ),
+                // ),
               ],
             ],
           ),
@@ -152,7 +152,7 @@ class _Sidebar extends StatelessWidget {
           const Padding(
             padding: EdgeInsets.all(16),
             child: Text(
-              'Native V4L2 preview',
+              'Camora by Taptic Labs',
               style: TextStyle(color: CamoraColors.muted, fontSize: 11),
             ),
           ),
@@ -226,20 +226,19 @@ class _NavigationItem extends StatelessWidget {
 
 class _BrandMark extends StatelessWidget {
   const _BrandMark();
+
   @override
-  Widget build(BuildContext context) => Container(
-    width: 34,
-    height: 34,
-    decoration: BoxDecoration(
-      borderRadius: BorderRadius.circular(11),
-      gradient: const LinearGradient(
-        colors: [Color(0xFF55A9FF), CamoraColors.purple, Color(0xFFF05BD1)],
-        begin: Alignment.bottomLeft,
-        end: Alignment.topRight,
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 120,
+      height: 80,
+      child: Image.asset(
+        'assets/images/camora_logo.png',
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.high,
       ),
-    ),
-    child: const Icon(Icons.videocam_rounded, size: 19, color: Colors.white),
-  );
+    );
+  }
 }
 
 class _ErrorBanner extends StatelessWidget {

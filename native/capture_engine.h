@@ -39,6 +39,9 @@ public:
         int strength
     );
 
+    void setCameraMirrored(bool enabled);
+    void setBackgroundMirrored(bool enabled);
+
     bool configureSegmentationModel(const std::string& modelPath);
 
     void setBackgroundReplacement(
@@ -102,6 +105,7 @@ public:
 private:
     void captureLoop();
     void processingLoop();
+    void mirrorFrameHorizontally(uint8_t* rgba);
     std::shared_ptr<VideoFrame> acquireFrame();
     void submitProcessingFrame(const uint8_t* rgba, size_t size);
     void publishFrame(std::shared_ptr<VideoFrame> frame);
@@ -139,6 +143,8 @@ private:
     std::atomic<bool> running_{false};
     std::atomic<bool> lowLightEnabled_{false};
     std::atomic<int> lowLightStrength_{50};
+    std::atomic<bool> cameraMirrored_{false};
+    std::atomic<bool> backgroundMirrored_{false};
 
     LowLightProcessor lowLightProcessor_;
 

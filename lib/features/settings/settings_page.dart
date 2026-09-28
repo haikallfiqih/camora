@@ -51,24 +51,23 @@ class SettingsPage extends StatelessWidget {
             const SizedBox(height: 16),
             CamoraPanel(
               child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const _CamoraMark(size: 48),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Camora',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: 3),
-                        const Text(
-                          'Professional camera controls for Linux',
-                          style: TextStyle(color: CamoraColors.muted),
-                        ),
-                      ],
-                    ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const _BrandMark(),
+                      const SizedBox(width: 14),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Professional camera controls for Linux',
+                            style: TextStyle(color: CamoraColors.muted),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                   const Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
@@ -76,7 +75,7 @@ class SettingsPage extends StatelessWidget {
                       Text('Version 1.0.0'),
                       SizedBox(height: 4),
                       Text(
-                        'Flutter for Linux',
+                        'Made with ❤️, Taptic Labs',
                         style: TextStyle(
                           color: CamoraColors.muted,
                           fontSize: 12,
@@ -126,22 +125,19 @@ class _UnavailableSetting extends StatelessWidget {
   );
 }
 
-class _CamoraMark extends StatelessWidget {
-  const _CamoraMark({required this.size});
-  final double size;
+class _BrandMark extends StatelessWidget {
+  const _BrandMark();
 
   @override
-  Widget build(BuildContext context) => Container(
-    width: size,
-    height: size,
-    decoration: BoxDecoration(
-      borderRadius: BorderRadius.circular(size * 0.32),
-      gradient: const LinearGradient(
-        colors: [Color(0xFF55A9FF), CamoraColors.purple, Color(0xFFF05BD1)],
-        begin: Alignment.bottomLeft,
-        end: Alignment.topRight,
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 120,
+      height: 80,
+      child: Image.asset(
+        'assets/images/camora_logo.png',
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.high,
       ),
-    ),
-    child: Icon(Icons.videocam_rounded, size: size * 0.55, color: Colors.white),
-  );
+    );
+  }
 }

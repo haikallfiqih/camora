@@ -125,6 +125,14 @@ void CaptureEngine::setLowLightEnhancement(
     lowLightProcessor_.setStrength(safeStrength);
 }
 
+void CaptureEngine::setCameraMirrored(bool enabled) {
+    cameraMirrored_ = enabled;
+}
+
+void CaptureEngine::setBackgroundMirrored(bool enabled) {
+    backgroundMirrored_ = enabled;
+}
+
 bool CaptureEngine::configureSegmentationModel(
     const std::string& modelPath
 ) {
@@ -237,6 +245,21 @@ void CaptureEngine::submitProcessingFrame(
     processingCondition_.notify_one();
 }
 
+void CaptureEngine::mirrorFrameHorizontally(uint8_t* rgba) {
+    if (!rgba || width_ <= 1 || height_ <= 0) return;
+
+    for (int y = 0; y < height_; ++y) {
+        uint8_t* row = rgba + static_cast<size_t>(y * width_) * 4;
+        for (int x = 0; x < width_ / 2; ++x) {
+            uint8_t* left = row + static_cast<size_t>(x) * 4;
+            uint8_t* right = row + static_cast<size_t>(width_ - 1 - x) * 4;
+            for (int channel = 0; channel < 4; ++channel) {
+                std::swap(left[channel], right[channel]);
+            }
+        }
+    }
+}
+
 void CaptureEngine::processingLoop() {
     std::shared_ptr<VideoFrame> frame;
 
@@ -262,6 +285,10 @@ void CaptureEngine::processingLoop() {
 
         if (!frame || frame->rgba.empty()) {
             continue;
+        }
+
+        if (cameraMirrored_) {
+            mirrorFrameHorizontally(frame->rgba.data());
         }
 
         // Heavy processing happens WITHOUT frameMutex_.
@@ -1188,32 +1215,20 @@ void CaptureEngine::compositeBackground(
     if (!backgroundEnabled_ || backgroundPixels_.empty() ||
         backgroundWidth_ <= 0 || backgroundHeight_ <= 0) return;
 
-    const size_t pixelCount = static_cast<size_t>(width_ * height_);
-    if (backgroundWidth_ == width_ && backgroundHeight_ == height_) {
-        for (size_t pixel = 0; pixel < pixelCount; ++pixel) {
-            uint8_t* foreground = rgba + pixel * 4;
-            const uint8_t* background = backgroundPixels_.data() + pixel * 4;
-            const int alphaValue = alpha[pixel];
-            const int inverseAlpha = 255 - alphaValue;
-            foreground[0] = static_cast<uint8_t>(
-                (foreground[0] * alphaValue +
-                 background[0] * inverseAlpha + 127) / 255);
-            foreground[1] = static_cast<uint8_t>(
-                (foreground[1] * alphaValue +
-                 background[1] * inverseAlpha + 127) / 255);
-            foreground[2] = static_cast<uint8_t>(
-                (foreground[2] * alphaValue +
-                 background[2] * inverseAlpha + 127) / 255);
-        }
-        return;
-    }
+    const bool mirrorBackground = backgroundMirrored_.load();
+    const bool backgroundMatchesFrame =
+        backgroundWidth_ == width_ && backgroundHeight_ == height_;
 
     for (int y = 0; y < height_; ++y) {
         const int backgroundY = std::min(
             backgroundHeight_ - 1, y * backgroundHeight_ / height_);
         for (int x = 0; x < width_; ++x) {
-            const int backgroundX = std::min(
-                backgroundWidth_ - 1, x * backgroundWidth_ / width_);
+            const int sampledX = mirrorBackground ? width_ - 1 - x : x;
+            const int backgroundX = backgroundMatchesFrame
+                ? sampledX
+                : std::min(
+                    backgroundWidth_ - 1,
+                    sampledX * backgroundWidth_ / width_);
             uint8_t* foreground = rgba + (y * width_ + x) * 4;
             const uint8_t* background = backgroundPixels_.data() +
                 (backgroundY * backgroundWidth_ + backgroundX) * 4;

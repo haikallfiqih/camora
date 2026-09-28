@@ -494,6 +494,17 @@ class _BackgroundImageSetting extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Mirror virtual background'),
+          subtitle: const Text(
+            'Reflect only the background media horizontally.',
+          ),
+          secondary: const Icon(Icons.flip_rounded),
+          value: appState.effects.backgroundMirrored,
+          onChanged: appState.effects.setBackgroundMirrored,
+        ),
+        const SizedBox(height: 6),
         const Text('Background source'),
         const SizedBox(height: 10),
         if (path != null) ...[

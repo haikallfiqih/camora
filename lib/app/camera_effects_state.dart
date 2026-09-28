@@ -16,6 +16,8 @@ class CameraEffectsSnapshot {
     required this.backgroundMode,
     required this.backgroundBlurStrength,
     required this.backgroundImagePath,
+    required this.cameraMirrored,
+    required this.backgroundMirrored,
     required this.autoFramingEnabled,
     required this.autoFramingSensitivity,
     required this.lowLightEnabled,
@@ -25,6 +27,8 @@ class CameraEffectsSnapshot {
   final BackgroundMode backgroundMode;
   final double backgroundBlurStrength;
   final String? backgroundImagePath;
+  final bool cameraMirrored;
+  final bool backgroundMirrored;
   final bool autoFramingEnabled;
   final double autoFramingSensitivity;
   final bool lowLightEnabled;
@@ -36,6 +40,8 @@ class CameraEffectsState extends ChangeNotifier {
   BackgroundMode _backgroundMode = BackgroundMode.none;
   double _backgroundBlurStrength = 0.7;
   String? _backgroundImagePath;
+  bool _cameraMirrored = false;
+  bool _backgroundMirrored = false;
   bool _autoFramingEnabled = false;
   double _autoFramingSensitivity = 0.5;
   bool _lowLightEnabled = false;
@@ -44,6 +50,8 @@ class CameraEffectsState extends ChangeNotifier {
   BackgroundMode get backgroundMode => _backgroundMode;
   double get backgroundBlurStrength => _backgroundBlurStrength;
   String? get backgroundImagePath => _backgroundImagePath;
+  bool get cameraMirrored => _cameraMirrored;
+  bool get backgroundMirrored => _backgroundMirrored;
   bool get autoFramingEnabled => _autoFramingEnabled;
   double get autoFramingSensitivity => _autoFramingSensitivity;
   bool get lowLightEnabled => _lowLightEnabled;
@@ -117,6 +125,18 @@ class CameraEffectsState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setCameraMirrored(bool value) {
+    if (_cameraMirrored == value) return;
+    _cameraMirrored = value;
+    notifyListeners();
+  }
+
+  void setBackgroundMirrored(bool value) {
+    if (_backgroundMirrored == value) return;
+    _backgroundMirrored = value;
+    notifyListeners();
+  }
+
   void selectBackgroundImage(String path) {
     if (_backgroundImagePath == path &&
         _backgroundMode == BackgroundMode.image) {
@@ -140,6 +160,8 @@ class CameraEffectsState extends ChangeNotifier {
     backgroundMode: _backgroundMode,
     backgroundBlurStrength: _backgroundBlurStrength,
     backgroundImagePath: _backgroundImagePath,
+    cameraMirrored: _cameraMirrored,
+    backgroundMirrored: _backgroundMirrored,
     autoFramingEnabled: _autoFramingEnabled,
     autoFramingSensitivity: _autoFramingSensitivity,
     lowLightEnabled: _lowLightEnabled,
