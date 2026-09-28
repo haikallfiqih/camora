@@ -6,37 +6,38 @@ import '../../widgets/ui_components.dart';
 
 class EffectsPage extends StatelessWidget {
   const EffectsPage({required this.appState, super.key});
+
   final AppState appState;
 
-  static const effects = [
-    (
+  static const effects = <EffectDefinition>[
+    EffectDefinition(
       CameraEffect.backgroundBlur,
       'Background Blur',
-      'Soften the area behind you.',
+      'Soften the area behind you while keeping the subject clear.',
       Icons.blur_on_outlined,
     ),
-    (
+    EffectDefinition(
       CameraEffect.backgroundRemoval,
       'Background Removal',
-      'Remove the background from the frame.',
+      'Isolate the subject and remove the scene behind them.',
       Icons.content_cut_outlined,
     ),
-    (
+    EffectDefinition(
       CameraEffect.backgroundImage,
       'Background Image',
-      'Replace the background with an image.',
+      'Place the subject over an image selected from your computer.',
       Icons.image_outlined,
     ),
-    (
+    EffectDefinition(
       CameraEffect.autoFraming,
       'Auto Framing',
-      'Keep the subject centered automatically.',
+      'Keep the subject centered as they move around the frame.',
       Icons.center_focus_strong_outlined,
     ),
-    (
+    EffectDefinition(
       CameraEffect.lowLightEnhancement,
       'Low Light Enhancement',
-      'Improve visibility in dim environments.',
+      'Improve subject visibility when the room is dim.',
       Icons.light_mode_outlined,
     ),
   ];
@@ -46,75 +47,373 @@ class EffectsPage extends StatelessWidget {
     children: [
       const PageHeading(
         title: 'Effects',
-        subtitle: 'Video enhancement tools for your camera feed.',
+        subtitle: 'Prepare enhancements for the Camora processing pipeline.',
+        trailing: StatusPill('Processing unavailable'),
       ),
-      const SizedBox(height: 20),
+      const SizedBox(height: 14),
       Expanded(
-        child: ListView(
-          children: [
-            CamoraPanel(
-              child: Row(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final splitView = constraints.maxWidth >= 780;
+            final effectList = _EffectList(appState: appState);
+            final inspector = _EffectInspector(appState: appState);
+
+            if (!splitView) {
+              return ListView(
                 children: [
-                  const Icon(
-                    Icons.info_outline_rounded,
-                    color: CamoraColors.purpleLight,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'Effects are planned but are not connected to the native preview pipeline yet.',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  ),
+                  const _AvailabilityNotice(),
+                  const SizedBox(height: 12),
+                  effectList,
+                  const SizedBox(height: 12),
+                  SizedBox(height: 330, child: inspector),
                 ],
-              ),
-            ),
-            const SizedBox(height: 14),
-            ...effects.map(
-              (effect) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: CamoraPanel(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 18,
-                    vertical: 14,
-                  ),
-                  child: Row(
+              );
+            }
+
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: ListView(
                     children: [
-                      Container(
-                        width: 42,
-                        height: 42,
-                        decoration: BoxDecoration(
-                          color: CamoraColors.purple.withValues(alpha: 0.14),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Icon(effect.$4, color: CamoraColors.purpleLight),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              effect.$2,
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                            const SizedBox(height: 3),
-                            Text(
-                              effect.$3,
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
-                        ),
-                      ),
-                      const StatusPill('Coming soon'),
+                      const _AvailabilityNotice(),
+                      const SizedBox(height: 12),
+                      effectList,
                     ],
                   ),
                 ),
-              ),
-            ),
-          ],
+                const SizedBox(width: 14),
+                SizedBox(
+                  width: (constraints.maxWidth * 0.36).clamp(280.0, 390.0),
+                  child: inspector,
+                ),
+              ],
+            );
+          },
         ),
       ),
     ],
   );
+}
+
+class _AvailabilityNotice extends StatelessWidget {
+  const _AvailabilityNotice();
+
+  @override
+  Widget build(BuildContext context) => CamoraPanel(
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+    child: const Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(Icons.info_outline_rounded, color: CamoraColors.purpleLight),
+        SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            'Effect processing is not connected yet. These controls configure '
+            'the planned pipeline and do not alter the live camera preview.',
+            style: TextStyle(color: Color(0xFFD6DAE3), height: 1.4),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _EffectList extends StatelessWidget {
+  const _EffectList({required this.appState});
+
+  final AppState appState;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: EffectsPage.effects
+        .map(
+          (effect) => Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _EffectCard(
+              definition: effect,
+              selected: appState.selectedEffect == effect.effect,
+              configured: appState.effectEnabled(effect.effect),
+              onSelected: () => appState.selectEffect(effect.effect),
+              onChanged: (value) {
+                appState.selectEffect(effect.effect);
+                appState.setEffect(effect.effect, value);
+              },
+            ),
+          ),
+        )
+        .toList(),
+  );
+}
+
+class _EffectCard extends StatelessWidget {
+  const _EffectCard({
+    required this.definition,
+    required this.selected,
+    required this.configured,
+    required this.onSelected,
+    required this.onChanged,
+  });
+
+  final EffectDefinition definition;
+  final bool selected;
+  final bool configured;
+  final VoidCallback onSelected;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: selected
+        ? CamoraColors.purple.withValues(alpha: 0.1)
+        : CamoraColors.surface,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(14),
+      side: BorderSide(
+        color: selected ? CamoraColors.purple : CamoraColors.border,
+      ),
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: InkWell(
+      onTap: onSelected,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                color: CamoraColors.purple.withValues(alpha: 0.16),
+                borderRadius: BorderRadius.circular(11),
+              ),
+              child: Icon(definition.icon, color: CamoraColors.purpleLight),
+            ),
+            const SizedBox(width: 13),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    definition.title,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    definition.description,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Semantics(
+              label: 'Configure ${definition.title}',
+              child: Switch(value: configured, onChanged: onChanged),
+            ),
+            const SizedBox(width: 2),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: selected ? Colors.white : CamoraColors.muted,
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _EffectInspector extends StatelessWidget {
+  const _EffectInspector({required this.appState});
+
+  final AppState appState;
+
+  @override
+  Widget build(BuildContext context) {
+    final definition = EffectsPage.effects.firstWhere(
+      (item) => item.effect == appState.selectedEffect,
+    );
+    final configured = appState.effectEnabled(definition.effect);
+
+    return CamoraPanel(
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  definition.title,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+              ),
+              Switch(
+                value: configured,
+                onChanged: (value) =>
+                    appState.setEffect(definition.effect, value),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            definition.description,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 16),
+          const Divider(height: 1),
+          const SizedBox(height: 18),
+          _EffectSettings(effect: definition.effect, appState: appState),
+          const Spacer(),
+          const Divider(height: 1),
+          const SizedBox(height: 12),
+          const Row(
+            children: [
+              Icon(Icons.schedule_rounded, size: 17, color: CamoraColors.muted),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Configuration only — processing backend required',
+                  style: TextStyle(color: CamoraColors.muted, fontSize: 11),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EffectSettings extends StatelessWidget {
+  const _EffectSettings({required this.effect, required this.appState});
+
+  final CameraEffect effect;
+  final AppState appState;
+
+  @override
+  Widget build(BuildContext context) => switch (effect) {
+    CameraEffect.backgroundBlur => _EffectSlider(
+      label: 'Blur strength',
+      value: appState.backgroundBlurStrength,
+      onChanged: appState.setBackgroundBlurStrength,
+    ),
+    CameraEffect.backgroundRemoval => const _SettingMessage(
+      icon: Icons.layers_clear_outlined,
+      title: 'Transparent background',
+      message: 'The processed output will use transparency where supported.',
+    ),
+    CameraEffect.backgroundImage => const _BackgroundImageSetting(),
+    CameraEffect.autoFraming => _EffectSlider(
+      label: 'Tracking sensitivity',
+      value: appState.autoFramingSensitivity,
+      onChanged: appState.setAutoFramingSensitivity,
+    ),
+    CameraEffect.lowLightEnhancement => _EffectSlider(
+      label: 'Enhancement strength',
+      value: appState.lowLightStrength,
+      onChanged: appState.setLowLightStrength,
+    ),
+  };
+}
+
+class _EffectSlider extends StatelessWidget {
+  const _EffectSlider({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String label;
+  final double value;
+  final ValueChanged<double> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Row(
+        children: [
+          Expanded(child: Text(label)),
+          Text(
+            '${(value * 100).round()}%',
+            style: const TextStyle(color: CamoraColors.muted, fontSize: 12),
+          ),
+        ],
+      ),
+      Slider(value: value, onChanged: onChanged),
+    ],
+  );
+}
+
+class _BackgroundImageSetting extends StatelessWidget {
+  const _BackgroundImageSetting();
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Text('Background source'),
+      const SizedBox(height: 10),
+      OutlinedButton.icon(
+        onPressed: null,
+        icon: const Icon(Icons.add_photo_alternate_outlined),
+        label: const Text('Choose image'),
+      ),
+      const SizedBox(height: 9),
+      const Text(
+        'Image selection will be enabled with the effects backend.',
+        style: TextStyle(color: CamoraColors.muted, fontSize: 11),
+      ),
+    ],
+  );
+}
+
+class _SettingMessage extends StatelessWidget {
+  const _SettingMessage({
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: CamoraColors.surfaceRaised,
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: CamoraColors.border),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 20, color: CamoraColors.purpleLight),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 4),
+              Text(message, style: Theme.of(context).textTheme.bodySmall),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class EffectDefinition {
+  const EffectDefinition(this.effect, this.title, this.description, this.icon);
+
+  final CameraEffect effect;
+  final String title;
+  final String description;
+  final IconData icon;
 }

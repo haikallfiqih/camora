@@ -14,6 +14,11 @@ class AppState extends ChangeNotifier {
   CamoraPage currentPage = CamoraPage.studio;
   final Set<CameraEffect> _enabledEffects = {};
 
+  CameraEffect selectedEffect = CameraEffect.backgroundBlur;
+  double backgroundBlurStrength = 0.7;
+  double autoFramingSensitivity = 0.5;
+  double lowLightStrength = 0.5;
+
   bool startPreviewOnLaunch = false;
   bool minimizeToTray = false;
   bool hardwareAcceleration = true;
@@ -26,12 +31,39 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void selectEffect(CameraEffect effect) {
+    if (selectedEffect == effect) return;
+    selectedEffect = effect;
+    notifyListeners();
+  }
+
   void setEffect(CameraEffect effect, bool enabled) {
     if (enabled) {
+      if (effect == CameraEffect.backgroundRemoval ||
+          effect == CameraEffect.backgroundImage) {
+        _enabledEffects
+          ..remove(CameraEffect.backgroundRemoval)
+          ..remove(CameraEffect.backgroundImage);
+      }
       _enabledEffects.add(effect);
     } else {
       _enabledEffects.remove(effect);
     }
+    notifyListeners();
+  }
+
+  void setBackgroundBlurStrength(double value) {
+    backgroundBlurStrength = value;
+    notifyListeners();
+  }
+
+  void setAutoFramingSensitivity(double value) {
+    autoFramingSensitivity = value;
+    notifyListeners();
+  }
+
+  void setLowLightStrength(double value) {
+    lowLightStrength = value;
     notifyListeners();
   }
 
