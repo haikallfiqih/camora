@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "artifact": {
+    "version": "1",
+    "url": null,
+    "sha256": "537b56c0383b2b6e0fa9f49a81cfb82b51893ad7667c64ddb68b376c890e504f",
+    "minDriver": "595.91.07"
+  }
+}

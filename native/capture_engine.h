@@ -69,6 +69,10 @@ public:
         return segmenter_.configuredForFrame(width_, height_);
     }
 
+    const char* aiBackendName() const {
+        return segmenter_.backendName();
+    }
+
     bool copyLatestFrame(
         uint8_t* destination,
         int destinationSize

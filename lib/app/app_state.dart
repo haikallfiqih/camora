@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import 'camera_effects_state.dart';
+import '../runtime/gpu_runtime_manager.dart';
 export 'camera_effects_state.dart';
 
 enum CamoraPage { studio, camera, effects, virtualCamera, settings }
@@ -8,10 +9,13 @@ enum CamoraPage { studio, camera, effects, virtualCamera, settings }
 class AppState extends ChangeNotifier {
   AppState() {
     effects.addListener(notifyListeners);
+    gpuRuntime.addListener(notifyListeners);
+    gpuRuntime.initialize();
   }
 
   CamoraPage currentPage = CamoraPage.studio;
   final CameraEffectsState effects = CameraEffectsState();
+  final GpuRuntimeManager gpuRuntime = GpuRuntimeManager();
   CameraEffect selectedEffect = CameraEffect.backgroundBlur;
 
   bool startPreviewOnLaunch = false;
@@ -48,7 +52,9 @@ class AppState extends ChangeNotifier {
   @override
   void dispose() {
     effects.removeListener(notifyListeners);
+    gpuRuntime.removeListener(notifyListeners);
     effects.dispose();
+    gpuRuntime.dispose();
     super.dispose();
   }
 }

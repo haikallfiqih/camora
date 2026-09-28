@@ -9,5 +9,5 @@ Depends: libc6, libstdc++6, libgcc-s1, zlib1g, libgtk-3-0 | libgtk-3-0t64, libgs
 Description: AI camera effects and virtual camera for Linux
  Camora captures a physical camera once, applies live AI effects, and publishes
  the processed result as a PipeWire virtual camera for applications such as OBS.
- NVIDIA CUDA is used when its runtime and driver are usable; CPU is the automatic
- fallback.
+ CPU processing works out of the box. Optional NVIDIA acceleration can be installed
+ privately from Settings when a vetted runtime is configured.

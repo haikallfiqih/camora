@@ -105,8 +105,6 @@ if(EXISTS "${CAMORA_ONNXRUNTIME_BUNDLE_SOURCE}/libonnxruntime.so")
     COMPONENT Runtime
     FILES_MATCHING
       PATTERN "libonnxruntime.so*"
-      PATTERN "libonnxruntime_providers_shared.so*"
-      PATTERN "libonnxruntime_providers_cuda.so*"
   )
 endif()
 

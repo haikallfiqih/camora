@@ -61,6 +61,7 @@ flutter:
   assets:
     - assets/models/rvm_mobilenetv3_fp32.onnx
     - assets/images/camora_logo.png
+    - assets/runtime/linux-gpu-runtime.json
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

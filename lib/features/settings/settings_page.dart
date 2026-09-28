@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/app_state.dart';
 import '../../app/camora_theme.dart';
 import '../../camera/camera_session.dart';
+import '../../runtime/gpu_runtime_manager.dart';
 import '../../widgets/ui_components.dart';
 
 class SettingsPage extends StatelessWidget {
@@ -45,6 +46,18 @@ class SettingsPage extends StatelessWidget {
                   subtitle: 'Reflect only replacement images, GIFs, SVGs, and videos.',
                   value: appState.effects.backgroundMirrored,
                   onChanged: appState.effects.setBackgroundMirrored,
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _SettingsSection(
+              icon: Icons.speed_rounded,
+              title: 'GPU acceleration',
+              subtitle: 'Optional private NVIDIA runtime.',
+              children: [
+                _GpuRuntimeControls(
+                  runtime: appState.gpuRuntime,
+                  backend: session.aiBackend,
                 ),
               ],
             ),
@@ -159,6 +172,91 @@ class _SettingSwitch extends StatelessWidget {
     value: value,
     onChanged: onChanged,
   );
+}
+
+class _GpuRuntimeControls extends StatelessWidget {
+  const _GpuRuntimeControls({required this.runtime, required this.backend});
+
+  final GpuRuntimeManager runtime;
+  final String backend;
+
+  @override
+  Widget build(BuildContext context) {
+    final downloading = runtime.phase == GpuRuntimePhase.downloading;
+    return Column(
+      children: [
+        _StatusRow(
+          icon: backend == 'NVIDIA CUDA'
+              ? Icons.bolt_rounded
+              : Icons.memory_outlined,
+          title: 'Current backend',
+          subtitle: runtime.availabilityMessage,
+          label: backend,
+          available: backend == 'NVIDIA CUDA',
+        ),
+        if (downloading) ...[
+          const SizedBox(height: 4),
+          LinearProgressIndicator(value: runtime.progress),
+          const SizedBox(height: 8),
+          Text(
+            runtime.progress == null
+                ? 'Downloading GPU runtime…'
+                : 'Downloading ${(runtime.progress! * 100).round()}%',
+          ),
+        ],
+        if (runtime.error != null) ...[
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              runtime.error!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ),
+        ],
+        const SizedBox(height: 10),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: runtime.installed
+              ? OutlinedButton.icon(
+                  onPressed: downloading
+                      ? null
+                      : () => _confirmRemoval(context),
+                  icon: const Icon(Icons.delete_outline_rounded),
+                  label: const Text('Remove GPU runtime'),
+                )
+              : FilledButton.icon(
+                  onPressed: runtime.canInstall ? runtime.install : null,
+                  icon: const Icon(Icons.download_rounded),
+                  label: const Text('Enable GPU Acceleration'),
+                ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _confirmRemoval(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove GPU runtime?'),
+        content: const Text(
+          'Camora will continue on CPU. Restart Camora after removal.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await runtime.remove();
+  }
 }
 
 class _StatusRow extends StatelessWidget {

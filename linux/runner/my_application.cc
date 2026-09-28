@@ -146,6 +146,15 @@ static void video_method_call_cb(
   const gchar* method =
       fl_method_call_get_name(method_call);
 
+  if (strcmp(method, "aiBackend") == 0) {
+    g_autoptr(FlValue) result =
+        fl_value_new_string(g_camora_capture.aiBackendName());
+    g_autoptr(FlMethodResponse) response = FL_METHOD_RESPONSE(
+        fl_method_success_response_new(result));
+    fl_method_call_respond(method_call, response, nullptr);
+    return;
+  }
+
   if (strcmp(method, "start") == 0) {
     stop_camora_video();
 

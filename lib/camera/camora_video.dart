@@ -74,4 +74,12 @@ class CamoraVideo {
     );
     return result ?? const {};
   }
+
+  static Future<String> aiBackend() async {
+    try {
+      return await _channel.invokeMethod<String>("aiBackend") ?? "CPU";
+    } on MissingPluginException {
+      return "CPU";
+    }
+  }
 }

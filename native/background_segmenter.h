@@ -25,6 +25,7 @@ public:
         std::vector<float>& mask
     );
     bool available() const;
+    const char* backendName() const;
     bool configuredForFrame(int width, int height) const;
     void resetTemporalState();
     int maskWidth() const { return inputWidth_; }

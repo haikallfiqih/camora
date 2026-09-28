@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+camora_data_home=${XDG_DATA_HOME:-"$HOME/.local/share"}
+camora_gpu_lib="$camora_data_home/camora/runtime/current/lib"
+
+if [ -f "$camora_gpu_lib/libonnxruntime_providers_cuda.so" ]; then
+  export LD_LIBRARY_PATH="$camora_gpu_lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
+
+exec /opt/camora/camora-bin "$@"

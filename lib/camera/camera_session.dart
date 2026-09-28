@@ -30,6 +30,7 @@ class CameraSession extends ChangeNotifier {
   bool isLoading = false;
   bool previewLoading = false;
   bool nativeEffectsAvailable = true;
+  String aiBackend = "CPU";
   String? error;
   String? previewError;
   bool isVirtualCameraRunning = false;
@@ -190,6 +191,11 @@ class CameraSession extends ChangeNotifier {
         autoFramingSensitivity: effects.autoFramingSensitivity,
       );
       _appliedEffectsRevision = revision;
+      final reportedBackend = await CamoraVideo.aiBackend();
+      if (reportedBackend != aiBackend) {
+        aiBackend = reportedBackend;
+        notifyListeners();
+      }
       if (nativeEffectsAvailable != wasAvailable) notifyListeners();
     }
   }

@@ -83,6 +83,13 @@ bool BackgroundSegmenter::available() const {
     return impl_ && impl_->session;
 }
 
+const char* BackgroundSegmenter::backendName() const {
+    if (!available()) return "CPU";
+    return impl_->inferenceInfo.backend == InferenceBackend::Cuda
+        ? "NVIDIA CUDA"
+        : "CPU";
+}
+
 bool BackgroundSegmenter::configuredForFrame(int width, int height) const {
     return available() && frameWidth_ == width && frameHeight_ == height;
 }
