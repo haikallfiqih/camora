@@ -41,6 +41,7 @@ target_link_libraries(
 target_compile_options(
     camora_v4l2
     PRIVATE
+    "$<$<CONFIG:Debug>:-O2>"
     ${GST_CFLAGS_OTHER}
 )
 

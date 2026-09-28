@@ -37,7 +37,18 @@ bool CaptureEngine::start(
     subjectAlpha_.clear();
     segmentationFrame_ = 0;
 
+    {
+        std::lock_guard<std::mutex> lock(segmentationMutex_);
+        segmentationPending_ = false;
+        segmentationStop_ = false;
+    }
+
     running_ = true;
+
+    segmentationThread_ = std::thread(
+        &CaptureEngine::segmentationLoop,
+        this
+    );
 
     thread_ = std::thread(
         &CaptureEngine::captureLoop,
@@ -52,6 +63,16 @@ void CaptureEngine::stop() {
 
     if (thread_.joinable()) {
         thread_.join();
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(segmentationMutex_);
+        segmentationStop_ = true;
+        segmentationPending_ = false;
+    }
+    segmentationCondition_.notify_one();
+    if (segmentationThread_.joinable()) {
+        segmentationThread_.join();
     }
 }
 
@@ -96,17 +117,62 @@ void CaptureEngine::setBackgroundReplacement(
     backgroundEnabled_ = enabled && !backgroundPixels_.empty();
 }
 
-void CaptureEngine::compositeBackground(uint8_t* rgba) {
-    if (!backgroundEnabled_ || !segmenter_.available()) return;
+void CaptureEngine::submitSegmentationFrame(const uint8_t* rgba) {
+    if (segmentationFrame_++ % 3 != 0) return;
 
-    const bool refreshMask = segmentationFrame_++ % 2 == 0 ||
-        subjectAlpha_.size() != static_cast<size_t>(width_ * height_);
-    if (refreshMask) {
-        if (!segmenter_.segment(rgba, width_, height_, subjectMask_)) return;
+    std::unique_lock<std::mutex> lock(segmentationMutex_, std::try_to_lock);
+    if (!lock.owns_lock() || segmentationPending_ || segmentationStop_) return;
+
+    const int sampleWidth = segmenter_.maskWidth();
+    const int sampleHeight = segmenter_.maskHeight();
+    if (sampleWidth <= 0 || sampleHeight <= 0) return;
+    segmentationInput_.resize(
+        static_cast<size_t>(sampleWidth * sampleHeight * 4));
+    for (int y = 0; y < sampleHeight; ++y) {
+        const int sourceY = std::min(
+            height_ - 1, y * height_ / sampleHeight);
+        for (int x = 0; x < sampleWidth; ++x) {
+            const int sourceX = std::min(
+                width_ - 1, x * width_ / sampleWidth);
+            const uint8_t* source = rgba + (sourceY * width_ + sourceX) * 4;
+            uint8_t* destination = segmentationInput_.data() +
+                (y * sampleWidth + x) * 4;
+            destination[0] = source[0];
+            destination[1] = source[1];
+            destination[2] = source[2];
+            destination[3] = 255;
+        }
+    }
+    segmentationPending_ = true;
+    lock.unlock();
+    segmentationCondition_.notify_one();
+}
+void CaptureEngine::segmentationLoop() {
+    std::vector<uint8_t> input;
+    while (true) {
+        {
+            std::unique_lock<std::mutex> lock(segmentationMutex_);
+            segmentationCondition_.wait(lock, [this] {
+                return segmentationPending_ || segmentationStop_;
+            });
+            if (segmentationStop_) return;
+            input.swap(segmentationInput_);
+            segmentationPending_ = false;
+        }
+
+        if (!backgroundEnabled_ || input.empty() ||
+            !segmenter_.segment(
+                input.data(),
+                segmenter_.maskWidth(),
+                segmenter_.maskHeight(),
+                subjectMask_
+            )) {
+            continue;
+        }
 
         const int maskWidth = segmenter_.maskWidth();
         const int maskHeight = segmenter_.maskHeight();
-        subjectAlpha_.resize(static_cast<size_t>(width_ * height_));
+        std::vector<uint8_t> alpha(static_cast<size_t>(width_ * height_));
         for (int y = 0; y < height_; ++y) {
             const float maskY = height_ > 1
                 ? y * (maskHeight - 1.0f) / (height_ - 1.0f)
@@ -132,16 +198,46 @@ void CaptureEngine::compositeBackground(uint8_t* rgba) {
                     (probability - 0.20f) / 0.55f, 0.0f, 1.0f);
                 const float feathered = confidence * confidence *
                     (3.0f - 2.0f * confidence);
-                subjectAlpha_[y * width_ + x] = static_cast<uint8_t>(
+                alpha[y * width_ + x] = static_cast<uint8_t>(
                     feathered * 255.0f);
             }
         }
-    }
-    if (subjectAlpha_.empty()) return;
 
-    std::lock_guard<std::mutex> lock(backgroundMutex_);
+        std::lock_guard<std::mutex> lock(alphaMutex_);
+        subjectAlpha_ = std::move(alpha);
+    }
+}
+
+void CaptureEngine::compositeBackground(uint8_t* rgba) {
+    if (!backgroundEnabled_ || !segmenter_.available()) return;
+    submitSegmentationFrame(rgba);
+
+    std::lock_guard<std::mutex> alphaLock(alphaMutex_);
+    if (subjectAlpha_.size() != static_cast<size_t>(width_ * height_)) return;
+
+    std::lock_guard<std::mutex> backgroundLock(backgroundMutex_);
     if (!backgroundEnabled_ || backgroundPixels_.empty() ||
         backgroundWidth_ <= 0 || backgroundHeight_ <= 0) return;
+
+    const size_t pixelCount = static_cast<size_t>(width_ * height_);
+    if (backgroundWidth_ == width_ && backgroundHeight_ == height_) {
+        for (size_t pixel = 0; pixel < pixelCount; ++pixel) {
+            uint8_t* foreground = rgba + pixel * 4;
+            const uint8_t* background = backgroundPixels_.data() + pixel * 4;
+            const int alpha = subjectAlpha_[pixel];
+            const int inverseAlpha = 255 - alpha;
+            foreground[0] = static_cast<uint8_t>(
+                (foreground[0] * alpha + background[0] * inverseAlpha + 127) /
+                255);
+            foreground[1] = static_cast<uint8_t>(
+                (foreground[1] * alpha + background[1] * inverseAlpha + 127) /
+                255);
+            foreground[2] = static_cast<uint8_t>(
+                (foreground[2] * alpha + background[2] * inverseAlpha + 127) /
+                255);
+        }
+        return;
+    }
 
     for (int y = 0; y < height_; ++y) {
         const int backgroundY = std::min(

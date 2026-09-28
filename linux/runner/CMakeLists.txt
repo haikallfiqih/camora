@@ -21,6 +21,7 @@ add_executable(${BINARY_NAME}
 )
 
 apply_standard_settings(${BINARY_NAME})
+target_compile_options(${BINARY_NAME} PRIVATE "$<$<CONFIG:Debug>:-O2>")
 
 target_compile_features(
   ${BINARY_NAME}

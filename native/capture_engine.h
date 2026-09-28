@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <mutex>
 #include <string>
@@ -58,6 +59,8 @@ public:
 
 private:
     void captureLoop();
+    void segmentationLoop();
+    void submitSegmentationFrame(const uint8_t* rgba);
     void compositeBackground(uint8_t* rgba);
 
     std::string device_;
@@ -82,6 +85,13 @@ private:
     int backgroundWidth_ = 0;
     int backgroundHeight_ = 0;
     std::vector<float> subjectMask_;
+    std::mutex segmentationMutex_;
+    std::condition_variable segmentationCondition_;
+    std::thread segmentationThread_;
+    std::vector<uint8_t> segmentationInput_;
+    bool segmentationPending_ = false;
+    bool segmentationStop_ = false;
+    std::mutex alphaMutex_;
     std::vector<uint8_t> subjectAlpha_;
     int segmentationFrame_ = 0;
 
