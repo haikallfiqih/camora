@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "background_segmenter.h"
+#include "low_light_processor.h"
 
 class CaptureEngine {
 public:
@@ -73,10 +74,9 @@ private:
     std::atomic<bool> lowLightEnabled_{false};
     std::atomic<int> lowLightStrength_{50};
 
-    std::thread thread_;
+    LowLightProcessor lowLightProcessor_;
 
-    std::mutex effectMutex_;
-    void* lowLightFilter_ = nullptr;
+    std::thread thread_;
 
     BackgroundSegmenter segmenter_;
     std::atomic<bool> backgroundEnabled_{false};

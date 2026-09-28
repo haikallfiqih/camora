@@ -23,6 +23,7 @@ add_executable(${BINARY_NAME}
 
   "../../native/camora_v4l2.cpp"
   "../../native/capture_engine.cpp"
+  "../../native/low_light_processor.cpp"
   "../../native/background_segmenter.cpp"
 )
 
