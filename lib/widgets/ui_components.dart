@@ -159,11 +159,7 @@ class CameraPreview extends StatelessWidget {
             Center(
               child: AspectRatio(
                 aspectRatio: ratio,
-                child: Transform(
-                  alignment: Alignment.center,
-                  transform: Matrix4.diagonal3Values(-1, 1, 1),
-                  child: Texture(textureId: session.textureId!),
-                ),
+                child: Texture(textureId: session.textureId!),
               ),
             )
           else

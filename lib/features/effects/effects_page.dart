@@ -58,7 +58,7 @@ class EffectsPage extends StatelessWidget {
     children: [
       PageHeading(
         title: 'Effects',
-        subtitle: 'Prepare enhancements for the Camora processing pipeline.',
+        subtitle: 'Effcts for Camora',
         trailing: StatusPill(
           session.nativeEffectsAvailable
               ? 'Native effects available'
@@ -98,7 +98,7 @@ class EffectsPage extends StatelessWidget {
                 Expanded(
                   child: ListView(
                     children: [
-                      const _AvailabilityNotice(),
+                      // const _AvailabilityNotice(),
                       const SizedBox(height: 12),
                       effectList,
                     ],

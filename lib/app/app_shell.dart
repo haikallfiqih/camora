@@ -83,7 +83,7 @@ class _AppShellState extends State<AppShell> {
     CamoraPage.camera => CameraPage(session: session, appState: appState),
     CamoraPage.effects => EffectsPage(session: session, appState: appState),
     CamoraPage.virtualCamera => VirtualCameraPage(session: session),
-    CamoraPage.settings => const SettingsPage(),
+    CamoraPage.settings => SettingsPage(session: session, appState: appState),
   };
 }
 

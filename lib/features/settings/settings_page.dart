@@ -1,91 +1,94 @@
 import 'package:flutter/material.dart';
 
+import '../../app/app_state.dart';
 import '../../app/camora_theme.dart';
+import '../../camera/camera_session.dart';
 import '../../widgets/ui_components.dart';
 
 class SettingsPage extends StatelessWidget {
-  const SettingsPage({super.key});
+  const SettingsPage({
+    required this.session,
+    required this.appState,
+    super.key,
+  });
+
+  final CameraSession session;
+  final AppState appState;
 
   @override
   Widget build(BuildContext context) => Column(
     children: [
       const PageHeading(
         title: 'Settings',
-        subtitle: 'Customize your Camora experience.',
+        subtitle: 'Configure Camora output and review the active pipeline.',
       ),
       const SizedBox(height: 20),
       Expanded(
         child: ListView(
           children: [
-            const _SettingsSection(
-              title: 'General',
+            _SettingsSection(
+              icon: Icons.flip_rounded,
+              title: 'Orientation',
+              subtitle: 'Camera and background orientation are independent.',
               children: [
-                _UnavailableSetting(
-                  title: 'Start preview on launch',
-                  subtitle: 'Automatic preview startup is not implemented yet.',
+                _SettingSwitch(
+                  icon: Icons.videocam_outlined,
+                  title: 'Mirror camera',
+                  subtitle: 'Reflect the camera and person in the preview and output.',
+                  value: appState.effects.cameraMirrored,
+                  onChanged: appState.effects.setCameraMirrored,
                 ),
-                _UnavailableSetting(
-                  title: 'Minimize to tray',
-                  subtitle: 'System tray integration is not implemented yet.',
+                const Divider(height: 1),
+                _SettingSwitch(
+                  icon: Icons.image_outlined,
+                  title: 'Mirror virtual background',
+                  subtitle: 'Reflect only replacement images, GIFs, SVGs, and videos.',
+                  value: appState.effects.backgroundMirrored,
+                  onChanged: appState.effects.setBackgroundMirrored,
                 ),
               ],
             ),
             const SizedBox(height: 16),
-            const _SettingsSection(
-              title: 'Performance',
+            _SettingsSection(
+              icon: Icons.memory_rounded,
+              title: 'Processing',
+              subtitle: 'Current Camora runtime status.',
               children: [
-                _UnavailableSetting(
-                  title: 'Hardware acceleration',
-                  subtitle: 'Runtime acceleration selection is not available.',
+                _StatusRow(
+                  icon: Icons.preview_outlined,
+                  title: 'Camera preview',
+                  subtitle: session.isPreviewing
+                      ? 'The processed camera pipeline is active.'
+                      : 'Start the preview from Studio when you are ready.',
+                  label: session.isPreviewing ? 'Live' : 'Stopped',
+                  available: session.isPreviewing,
                 ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text('Video processing'),
-                  subtitle: Text(
-                    'No effects processing backend is currently active.',
-                  ),
-                  trailing: StatusPill('Unavailable'),
+                const Divider(height: 1),
+                _StatusRow(
+                  icon: Icons.auto_awesome_outlined,
+                  title: 'Effects pipeline',
+                  subtitle: session.nativeEffectsAvailable
+                      ? 'Native effects are available and update live.'
+                      : 'The native effects backend needs attention.',
+                  label: session.nativeEffectsAvailable
+                      ? 'Available'
+                      : 'Unavailable',
+                  available: session.nativeEffectsAvailable,
+                ),
+                const Divider(height: 1),
+                _StatusRow(
+                  icon: Icons.connected_tv_outlined,
+                  title: 'Camora Virtual Camera',
+                  subtitle: session.isVirtualCameraRunning
+                      ? 'Other applications can use the processed output.'
+                      : 'Start it from the Virtual Camera page.',
+                  label: session.isVirtualCameraRunning ? 'Running' : 'Stopped',
+                  available: session.isVirtualCameraRunning,
                 ),
               ],
             ),
             const SizedBox(height: 16),
-            CamoraPanel(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const _BrandMark(),
-                      const SizedBox(width: 14),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Professional camera controls for Linux',
-                            style: TextStyle(color: CamoraColors.muted),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  const Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text('Version 1.0.0'),
-                      SizedBox(height: 4),
-                      Text(
-                        'Made with ❤️, Taptic Labs',
-                        style: TextStyle(
-                          color: CamoraColors.muted,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
+            const _AboutPanel(),
           ],
         ),
       ),
@@ -94,8 +97,16 @@ class SettingsPage extends StatelessWidget {
 }
 
 class _SettingsSection extends StatelessWidget {
-  const _SettingsSection({required this.title, required this.children});
+  const _SettingsSection({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.children,
+  });
+
+  final IconData icon;
   final String title;
+  final String subtitle;
   final List<Widget> children;
 
   @override
@@ -103,41 +114,124 @@ class _SettingsSection extends StatelessWidget {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 8),
+        Row(
+          children: [
+            Icon(icon, size: 20, color: CamoraColors.purpleLight),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                title,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 5),
+        Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+        const SizedBox(height: 10),
         ...children,
       ],
     ),
   );
 }
 
-class _UnavailableSetting extends StatelessWidget {
-  const _UnavailableSetting({required this.title, required this.subtitle});
+class _SettingSwitch extends StatelessWidget {
+  const _SettingSwitch({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final IconData icon;
   final String title;
   final String subtitle;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) => SwitchListTile(
+    contentPadding: EdgeInsets.zero,
+    secondary: Icon(icon, color: CamoraColors.muted),
+    title: Text(title),
+    subtitle: Text(subtitle),
+    value: value,
+    onChanged: onChanged,
+  );
+}
+
+class _StatusRow extends StatelessWidget {
+  const _StatusRow({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.label,
+    required this.available,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String label;
+  final bool available;
 
   @override
   Widget build(BuildContext context) => ListTile(
     contentPadding: EdgeInsets.zero,
+    leading: Icon(icon, color: CamoraColors.muted),
     title: Text(title),
     subtitle: Text(subtitle),
-    trailing: const StatusPill('Coming soon'),
+    trailing: StatusPill(label, available: available),
   );
 }
 
-class _BrandMark extends StatelessWidget {
-  const _BrandMark();
+class _AboutPanel extends StatelessWidget {
+  const _AboutPanel();
 
   @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 120,
-      height: 80,
-      child: Image.asset(
-        'assets/images/camora_logo.png',
-        fit: BoxFit.contain,
-        filterQuality: FilterQuality.high,
-      ),
-    );
-  }
+  Widget build(BuildContext context) => CamoraPanel(
+    child: LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 560;
+        final logo = Image.asset(
+          'assets/images/camora_logo.png',
+          width: 120,
+          height: 64,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.high,
+        );
+        const details = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Professional camera controls for Linux',
+              style: TextStyle(color: CamoraColors.muted),
+            ),
+            SizedBox(height: 5),
+            Text('Version 1.0.0', style: TextStyle(fontSize: 12)),
+            SizedBox(height: 3),
+            Text(
+              'Made with ❤️ by Taptic Labs',
+              style: TextStyle(color: CamoraColors.muted, fontSize: 12),
+            ),
+          ],
+        );
+
+        if (compact) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [logo, const SizedBox(height: 10), details],
+          );
+        }
+        return Row(
+          children: [
+            logo,
+            const SizedBox(width: 20),
+            const Expanded(child: details),
+          ],
+        );
+      },
+    ),
+  );
 }
