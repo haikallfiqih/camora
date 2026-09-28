@@ -42,6 +42,7 @@ class EffectsPage extends StatelessWidget {
       'Auto Framing',
       'Keep the subject centered as they move around the frame.',
       Icons.center_focus_strong_outlined,
+      available: true,
     ),
     EffectDefinition(
       CameraEffect.lowLightEnhancement,
@@ -183,6 +184,11 @@ class _EffectList extends StatelessWidget {
                   session.configureBackgroundImage(
                     enabled: value,
                     path: appState.backgroundImagePath,
+                  );
+                } else if (effect.effect == CameraEffect.autoFraming) {
+                  session.configureAutoFraming(
+                    enabled: value,
+                    sensitivity: appState.autoFramingSensitivity,
                   );
                 }
               },
@@ -334,6 +340,12 @@ class _EffectInspector extends StatelessWidget {
                             enabled: value,
                             path: appState.backgroundImagePath,
                           );
+                        } else if (definition.effect ==
+                            CameraEffect.autoFraming) {
+                          session.configureAutoFraming(
+                            enabled: value,
+                            sensitivity: appState.autoFramingSensitivity,
+                          );
                         }
                       }
                     : null,
@@ -436,7 +448,15 @@ class _EffectSettings extends StatelessWidget {
     CameraEffect.autoFraming => _EffectSlider(
       label: 'Tracking sensitivity',
       value: appState.autoFramingSensitivity,
-      onChanged: appState.setAutoFramingSensitivity,
+      onChanged: (value) {
+        appState.setAutoFramingSensitivity(value);
+        if (appState.effectEnabled(CameraEffect.autoFraming)) {
+          session.configureAutoFraming(
+            enabled: true,
+            sensitivity: value,
+          );
+        }
+      },
     ),
     CameraEffect.lowLightEnhancement => _EffectSlider(
       label: 'Enhancement strength',

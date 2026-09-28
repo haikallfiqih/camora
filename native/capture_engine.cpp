@@ -167,6 +167,29 @@ void CaptureEngine::setBackgroundRemoval(
     }
 }
 
+
+void CaptureEngine::setAutoFraming(
+    bool enabled,
+    int sensitivity
+) {
+    autoFramingSensitivity_ =
+        std::clamp(sensitivity, 0, 100);
+
+    const bool wasEnabled =
+        autoFramingEnabled_.exchange(enabled);
+
+    if (wasEnabled && !enabled) {
+        resetAutoFraming();
+    }
+}
+
+void CaptureEngine::resetAutoFraming() {
+    autoFramingInitialized_ = false;
+    autoFrameCenterX_ = 0.5f;
+    autoFrameCenterY_ = 0.5f;
+    autoFrameZoom_ = 1.0f;
+}
+
 void CaptureEngine::submitProcessingFrame(
     const uint8_t* rgba,
     size_t size
@@ -237,7 +260,8 @@ void CaptureEngine::processingLoop() {
         const bool segmentationEffectEnabled =
             backgroundEnabled_ ||
             backgroundBlurEnabled_ ||
-            backgroundRemovalEnabled_;
+            backgroundRemovalEnabled_ ||
+            autoFramingEnabled_;
 
         if (segmentationEffectEnabled && segmenter_.available()) {
             submitSegmentationFrame(frame.data());
@@ -249,7 +273,8 @@ void CaptureEngine::processingLoop() {
         // raw and composited frames, causing background flicker.
         if (!backgroundEnabled_ &&
             !backgroundBlurEnabled_ &&
-            !backgroundRemovalEnabled_) {
+            !backgroundRemovalEnabled_ &&
+            !autoFramingEnabled_) {
             std::lock_guard<std::mutex> lock(frameMutex_);
 
             if (latestFrame_.size() == frame.size()) {
@@ -318,7 +343,8 @@ void CaptureEngine::segmentationLoop() {
 
         if ((!backgroundEnabled_ &&
              !backgroundBlurEnabled_ &&
-             !backgroundRemovalEnabled_) ||
+             !backgroundRemovalEnabled_ &&
+             !autoFramingEnabled_) ||
             input.empty() ||
             !segmenter_.segment(
                 input.data(),
@@ -428,6 +454,18 @@ void CaptureEngine::segmentationLoop() {
             );
         }
 
+        // Auto Framing is independent from the background mode.
+        // It runs after background compositing so Blur/Image/Removal
+        // can be combined with subject tracking.
+        if (autoFramingEnabled_) {
+            applyAutoFraming(
+                sourceFrame.data(),
+                refinedMask,
+                maskWidth,
+                maskHeight
+            );
+        }
+
         {
             std::lock_guard<std::mutex> lock(frameMutex_);
 
@@ -440,6 +478,350 @@ void CaptureEngine::segmentationLoop() {
             }
         }
     }
+}
+
+void CaptureEngine::applyAutoFraming(
+    uint8_t* rgba,
+    const std::vector<float>& mask,
+    int maskWidth,
+    int maskHeight
+) {
+    if (!rgba ||
+        !autoFramingEnabled_ ||
+        maskWidth <= 0 ||
+        maskHeight <= 0 ||
+        mask.size() !=
+            static_cast<size_t>(maskWidth * maskHeight)) {
+        return;
+    }
+
+    // --------------------------------------------------------
+    // Find subject bounds directly in the small RVM mask.
+    // This avoids another full-resolution scan.
+    // --------------------------------------------------------
+
+    int minX = maskWidth;
+    int minY = maskHeight;
+    int maxX = -1;
+    int maxY = -1;
+    int subjectPixels = 0;
+
+    constexpr float subjectThreshold = 0.35f;
+
+    for (int y = 0; y < maskHeight; ++y) {
+        for (int x = 0; x < maskWidth; ++x) {
+            const float confidence =
+                mask[static_cast<size_t>(
+                    y * maskWidth + x)];
+
+            if (confidence < subjectThreshold) {
+                continue;
+            }
+
+            minX = std::min(minX, x);
+            minY = std::min(minY, y);
+            maxX = std::max(maxX, x);
+            maxY = std::max(maxY, y);
+            ++subjectPixels;
+        }
+    }
+
+    // Ignore tiny segmentation noise.
+    const int minimumSubjectPixels =
+        std::max(12, (maskWidth * maskHeight) / 500);
+
+    if (maxX < minX ||
+        maxY < minY ||
+        subjectPixels < minimumSubjectPixels) {
+        return;
+    }
+
+    const float subjectCenterX =
+        (static_cast<float>(minX + maxX) * 0.5f) /
+        std::max(1, maskWidth - 1);
+
+    const float subjectCenterY =
+        (static_cast<float>(minY + maxY) * 0.5f) /
+        std::max(1, maskHeight - 1);
+
+    const float subjectWidth =
+        static_cast<float>(maxX - minX + 1) /
+        static_cast<float>(maskWidth);
+
+    const float subjectHeight =
+        static_cast<float>(maxY - minY + 1) /
+        static_cast<float>(maskHeight);
+
+    // --------------------------------------------------------
+    // Framing target.
+    //
+    // Keep generous head/body room. Auto Framing should feel like
+    // a camera operator, not an aggressive face crop.
+    // --------------------------------------------------------
+
+    // Digital auto-framing needs crop headroom.
+    //
+    // At 1.0x the crop is the entire sensor frame, so there is
+    // physically nowhere for a digital pan to move. Keep a mild
+    // base crop while Auto Framing is active.
+    constexpr float baseZoom = 1.20f;
+    constexpr float maximumZoom = 1.45f;
+
+    // If the subject is unusually small we may zoom in further,
+    // but ordinary webcam framing stays around the base zoom.
+    constexpr float targetSubjectWidth = 0.52f;
+    constexpr float targetSubjectHeight = 0.72f;
+
+    const float sizeDrivenZoom = std::min(
+        targetSubjectWidth /
+            std::max(subjectWidth, 0.01f),
+        targetSubjectHeight /
+            std::max(subjectHeight, 0.01f)
+    );
+
+    float targetZoom = std::clamp(
+        std::max(baseZoom, sizeDrivenZoom),
+        baseZoom,
+        maximumZoom
+    );
+
+    // --------------------------------------------------------
+    // Dead zone.
+    //
+    // Small body/head movement must not make the camera shake.
+    // --------------------------------------------------------
+
+    const int sensitivity =
+        std::clamp(
+            autoFramingSensitivity_.load(),
+            0,
+            100
+        );
+
+    const float normalizedSensitivity =
+        static_cast<float>(sensitivity) / 100.0f;
+
+    // High sensitivity -> smaller dead zone.
+    const float deadZone =
+        0.085f -
+        normalizedSensitivity * 0.045f;
+
+    float targetCenterX =
+        autoFramingInitialized_
+            ? autoFrameCenterX_
+            : subjectCenterX;
+
+    float targetCenterY =
+        autoFramingInitialized_
+            ? autoFrameCenterY_
+            : subjectCenterY;
+
+    if (!autoFramingInitialized_ ||
+        std::abs(subjectCenterX - autoFrameCenterX_) >
+            deadZone) {
+        targetCenterX = subjectCenterX;
+    }
+
+    // Vertical framing intentionally moves less eagerly.
+    // Webcam users move horizontally much more often.
+    if (!autoFramingInitialized_ ||
+        std::abs(subjectCenterY - autoFrameCenterY_) >
+            deadZone * 1.35f) {
+        targetCenterY = subjectCenterY;
+    }
+
+    // --------------------------------------------------------
+    // Temporal smoothing.
+    // Sensitivity controls response speed, not just dead-zone.
+    // --------------------------------------------------------
+
+    const float centerSmoothing =
+        0.055f +
+        normalizedSensitivity * 0.115f;
+
+    const float zoomSmoothing =
+        0.035f +
+        normalizedSensitivity * 0.065f;
+
+    if (!autoFramingInitialized_) {
+        autoFrameCenterX_ = targetCenterX;
+        autoFrameCenterY_ = targetCenterY;
+
+        // Auto Framing requires crop headroom immediately so
+        // horizontal/vertical tracking can actually move.
+        autoFrameZoom_ = baseZoom;
+
+        autoFramingInitialized_ = true;
+    } else {
+        autoFrameCenterX_ +=
+            (targetCenterX - autoFrameCenterX_) *
+            centerSmoothing;
+
+        autoFrameCenterY_ +=
+            (targetCenterY - autoFrameCenterY_) *
+            centerSmoothing;
+
+        autoFrameZoom_ +=
+            (targetZoom - autoFrameZoom_) *
+            zoomSmoothing;
+    }
+
+    // --------------------------------------------------------
+    // Convert smoothed framing into a crop rectangle.
+    // --------------------------------------------------------
+
+    const float zoom =
+        std::clamp(autoFrameZoom_, 1.0f, 1.45f);
+
+    int cropWidth =
+        static_cast<int>(
+            static_cast<float>(width_) / zoom);
+
+    int cropHeight =
+        static_cast<int>(
+            static_cast<float>(height_) / zoom);
+
+    cropWidth = std::clamp(cropWidth, 2, width_);
+    cropHeight = std::clamp(cropHeight, 2, height_);
+
+    int cropX =
+        static_cast<int>(
+            autoFrameCenterX_ * width_ -
+            cropWidth * 0.5f);
+
+    int cropY =
+        static_cast<int>(
+            autoFrameCenterY_ * height_ -
+            cropHeight * 0.5f);
+
+    cropX = std::clamp(
+        cropX,
+        0,
+        std::max(0, width_ - cropWidth)
+    );
+
+    cropY = std::clamp(
+        cropY,
+        0,
+        std::max(0, height_ - cropHeight)
+    );
+
+    // No visible crop yet.
+    if (cropWidth == width_ &&
+        cropHeight == height_) {
+        return;
+    }
+
+    // --------------------------------------------------------
+    // Bilinear crop + scale back to original output dimensions.
+    //
+    // Output resolution never changes, so Flutter and the future
+    // virtual-camera sink remain stable.
+    // --------------------------------------------------------
+
+    std::vector<uint8_t> framed(
+        static_cast<size_t>(width_ * height_ * 4));
+
+    const float xScale =
+        width_ > 1
+            ? static_cast<float>(cropWidth - 1) /
+                static_cast<float>(width_ - 1)
+            : 0.0f;
+
+    const float yScale =
+        height_ > 1
+            ? static_cast<float>(cropHeight - 1) /
+                static_cast<float>(height_ - 1)
+            : 0.0f;
+
+    for (int y = 0; y < height_; ++y) {
+        const float sourceY =
+            static_cast<float>(cropY) +
+            static_cast<float>(y) * yScale;
+
+        const int y0 =
+            std::clamp(
+                static_cast<int>(sourceY),
+                0,
+                height_ - 1);
+
+        const int y1 =
+            std::min(height_ - 1, y0 + 1);
+
+        const float fy =
+            sourceY - static_cast<float>(y0);
+
+        for (int x = 0; x < width_; ++x) {
+            const float sourceX =
+                static_cast<float>(cropX) +
+                static_cast<float>(x) * xScale;
+
+            const int x0 =
+                std::clamp(
+                    static_cast<int>(sourceX),
+                    0,
+                    width_ - 1);
+
+            const int x1 =
+                std::min(width_ - 1, x0 + 1);
+
+            const float fx =
+                sourceX - static_cast<float>(x0);
+
+            const uint8_t* p00 =
+                rgba +
+                static_cast<size_t>(
+                    y0 * width_ + x0) * 4;
+
+            const uint8_t* p10 =
+                rgba +
+                static_cast<size_t>(
+                    y0 * width_ + x1) * 4;
+
+            const uint8_t* p01 =
+                rgba +
+                static_cast<size_t>(
+                    y1 * width_ + x0) * 4;
+
+            const uint8_t* p11 =
+                rgba +
+                static_cast<size_t>(
+                    y1 * width_ + x1) * 4;
+
+            uint8_t* out =
+                framed.data() +
+                static_cast<size_t>(
+                    y * width_ + x) * 4;
+
+            for (int channel = 0;
+                 channel < 4;
+                 ++channel) {
+                const float top =
+                    p00[channel] * (1.0f - fx) +
+                    p10[channel] * fx;
+
+                const float bottom =
+                    p01[channel] * (1.0f - fx) +
+                    p11[channel] * fx;
+
+                out[channel] =
+                    static_cast<uint8_t>(
+                        std::clamp(
+                            top * (1.0f - fy) +
+                                bottom * fy,
+                            0.0f,
+                            255.0f
+                        )
+                    );
+            }
+        }
+    }
+
+    std::memcpy(
+        rgba,
+        framed.data(),
+        framed.size()
+    );
 }
 
 void CaptureEngine::compositeBackgroundRemoval(

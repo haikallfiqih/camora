@@ -31,6 +31,8 @@ class CamoraVideo {
     required bool backgroundBlurEnabled,
     required double backgroundBlurStrength,
     required bool backgroundRemovalEnabled,
+    required bool autoFramingEnabled,
+    required double autoFramingSensitivity,
   }) async {
     try {
       final available = await _channel.invokeMethod<bool>('setEffects', {
@@ -41,6 +43,8 @@ class CamoraVideo {
         'backgroundBlurEnabled': backgroundBlurEnabled,
         'backgroundBlurStrength': (backgroundBlurStrength * 100).round(),
         'backgroundRemovalEnabled': backgroundRemovalEnabled,
+        'autoFramingEnabled': autoFramingEnabled,
+        'autoFramingSensitivity': (autoFramingSensitivity * 100).round(),
       });
       return available ?? true;
     } on MissingPluginException {

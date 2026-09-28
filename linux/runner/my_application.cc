@@ -40,6 +40,8 @@ static std::string g_background_path;
 static bool g_background_blur_enabled = false;
 static int g_background_blur_strength = 70;
 static bool g_background_removal_enabled = false;
+static bool g_auto_framing_enabled = false;
+static int g_auto_framing_sensitivity = 50;
 
 static bool ensure_segmentation_model() {
   if (g_camora_capture.backgroundReplacementAvailable()) return true;
@@ -330,6 +332,10 @@ static void video_method_call_cb(
           fl_value_lookup_string(args, "backgroundBlurStrength");
       FlValue* background_removal_enabled_value =
           fl_value_lookup_string(args, "backgroundRemovalEnabled");
+      FlValue* auto_framing_enabled_value =
+          fl_value_lookup_string(args, "autoFramingEnabled");
+      FlValue* auto_framing_sensitivity_value =
+          fl_value_lookup_string(args, "autoFramingSensitivity");
 
       if (enabled_value &&
           fl_value_get_type(enabled_value) == FL_VALUE_TYPE_BOOL) {
@@ -372,6 +378,20 @@ static void video_method_call_cb(
         g_background_removal_enabled =
             fl_value_get_bool(background_removal_enabled_value);
       }
+
+      if (auto_framing_enabled_value &&
+          fl_value_get_type(auto_framing_enabled_value) ==
+              FL_VALUE_TYPE_BOOL) {
+        g_auto_framing_enabled =
+            fl_value_get_bool(auto_framing_enabled_value);
+      }
+
+      if (auto_framing_sensitivity_value &&
+          fl_value_get_type(auto_framing_sensitivity_value) ==
+              FL_VALUE_TYPE_INT) {
+        g_auto_framing_sensitivity = static_cast<int>(
+            fl_value_get_int(auto_framing_sensitivity_value));
+      }
     }
 
     g_camora_capture.setLowLightEnhancement(
@@ -381,7 +401,8 @@ static void video_method_call_cb(
 
     if (g_background_blur_enabled ||
         g_background_removal_enabled ||
-        g_background_enabled) {
+        g_background_enabled ||
+        g_auto_framing_enabled) {
       effects_available = ensure_segmentation_model();
     }
 
@@ -399,6 +420,10 @@ static void video_method_call_cb(
     g_camora_capture.setBackgroundBlur(
         g_background_blur_enabled && effects_available,
         g_background_blur_strength);
+
+    g_camora_capture.setAutoFraming(
+        g_auto_framing_enabled && effects_available,
+        g_auto_framing_sensitivity);
 
     if (!update_background_replacement()) {
       effects_available = false;

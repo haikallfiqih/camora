@@ -48,6 +48,11 @@ public:
         bool enabled
     );
 
+    void setAutoFraming(
+        bool enabled,
+        int sensitivity
+    );
+
     bool backgroundReplacementAvailable() const {
         return segmenter_.configuredForFrame(width_, height_);
     }
@@ -87,6 +92,15 @@ private:
         const std::vector<uint8_t>& alpha
     );
 
+    void applyAutoFraming(
+        uint8_t* rgba,
+        const std::vector<float>& mask,
+        int maskWidth,
+        int maskHeight
+    );
+
+    void resetAutoFraming();
+
     std::string device_;
 
     int width_ = 0;
@@ -118,6 +132,14 @@ private:
     std::atomic<bool> backgroundBlurEnabled_{false};
     std::atomic<int> backgroundBlurStrength_{70};
     std::atomic<bool> backgroundRemovalEnabled_{false};
+    std::atomic<bool> autoFramingEnabled_{false};
+    std::atomic<int> autoFramingSensitivity_{50};
+
+    // Smoothed framing state. Owned by the segmentation worker.
+    bool autoFramingInitialized_ = false;
+    float autoFrameCenterX_ = 0.5f;
+    float autoFrameCenterY_ = 0.5f;
+    float autoFrameZoom_ = 1.0f;
     std::mutex backgroundMutex_;
     std::vector<uint8_t> backgroundPixels_;
     int backgroundWidth_ = 0;

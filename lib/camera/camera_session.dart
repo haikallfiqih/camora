@@ -28,6 +28,8 @@ class CameraSession extends ChangeNotifier {
   bool backgroundBlurEnabled = false;
   double backgroundBlurStrength = 0.7;
   bool backgroundRemovalEnabled = false;
+  bool autoFramingEnabled = false;
+  double autoFramingSensitivity = 0.5;
   String? error;
   String? previewError;
 
@@ -155,6 +157,17 @@ class CameraSession extends ChangeNotifier {
     await _pushEffects();
   }
 
+  Future<void> configureAutoFraming({
+    required bool enabled,
+    required double sensitivity,
+  }) async {
+    autoFramingEnabled = enabled;
+    autoFramingSensitivity =
+        sensitivity.clamp(0.0, 1.0);
+
+    await _pushEffects();
+  }
+
   Future<void> configureBackgroundRemoval({
     required bool enabled,
   }) async {
@@ -208,6 +221,8 @@ class CameraSession extends ChangeNotifier {
       backgroundBlurEnabled: backgroundBlurEnabled,
       backgroundBlurStrength: backgroundBlurStrength,
       backgroundRemovalEnabled: backgroundRemovalEnabled,
+      autoFramingEnabled: autoFramingEnabled,
+      autoFramingSensitivity: autoFramingSensitivity,
     );
     if (nativeEffectsAvailable != wasAvailable) notifyListeners();
   }
