@@ -40,9 +40,11 @@ class AppState extends ChangeNotifier {
 
   void setEffect(CameraEffect effect, bool enabled) {
     if (enabled) {
-      if (effect == CameraEffect.backgroundRemoval ||
+      if (effect == CameraEffect.backgroundBlur ||
+          effect == CameraEffect.backgroundRemoval ||
           effect == CameraEffect.backgroundImage) {
         _enabledEffects
+          ..remove(CameraEffect.backgroundBlur)
           ..remove(CameraEffect.backgroundRemoval)
           ..remove(CameraEffect.backgroundImage);
       }

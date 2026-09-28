@@ -39,6 +39,11 @@ public:
         int height
     );
 
+    void setBackgroundBlur(
+        bool enabled,
+        int strength
+    );
+
     bool backgroundReplacementAvailable() const {
         return segmenter_.configuredForFrame(width_, height_);
     }
@@ -65,6 +70,10 @@ private:
     void segmentationLoop();
     void submitSegmentationFrame(const uint8_t* rgba);
     void compositeBackground(
+        uint8_t* rgba,
+        const std::vector<uint8_t>& alpha
+    );
+    void compositeBackgroundBlur(
         uint8_t* rgba,
         const std::vector<uint8_t>& alpha
     );
@@ -97,6 +106,8 @@ private:
 
     BackgroundSegmenter segmenter_;
     std::atomic<bool> backgroundEnabled_{false};
+    std::atomic<bool> backgroundBlurEnabled_{false};
+    std::atomic<int> backgroundBlurStrength_{70};
     std::mutex backgroundMutex_;
     std::vector<uint8_t> backgroundPixels_;
     int backgroundWidth_ = 0;

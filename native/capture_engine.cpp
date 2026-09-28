@@ -142,6 +142,19 @@ void CaptureEngine::setBackgroundReplacement(
     }
 }
 
+void CaptureEngine::setBackgroundBlur(
+    bool enabled,
+    int strength
+) {
+    backgroundBlurStrength_ = std::clamp(strength, 0, 100);
+    backgroundBlurEnabled_ = enabled;
+
+    if (!enabled) {
+        segmenter_.resetTemporalState();
+        previousSubjectMask_.clear();
+    }
+}
+
 void CaptureEngine::submitProcessingFrame(
     const uint8_t* rgba,
     size_t size
@@ -209,7 +222,10 @@ void CaptureEngine::processingLoop() {
             height_
         );
 
-        if (backgroundEnabled_ && segmenter_.available()) {
+        const bool segmentationEffectEnabled =
+            backgroundEnabled_ || backgroundBlurEnabled_;
+
+        if (segmentationEffectEnabled && segmenter_.available()) {
             submitSegmentationFrame(frame.data());
         }
 
@@ -217,7 +233,7 @@ void CaptureEngine::processingLoop() {
         // worker owns publishing because it has the mask matched to
         // this frame. Publishing here as well would alternate between
         // raw and composited frames, causing background flicker.
-        if (!backgroundEnabled_) {
+        if (!backgroundEnabled_ && !backgroundBlurEnabled_) {
             std::lock_guard<std::mutex> lock(frameMutex_);
 
             if (latestFrame_.size() == frame.size()) {
@@ -284,7 +300,8 @@ void CaptureEngine::segmentationLoop() {
             segmentationPending_ = false;
         }
 
-        if (!backgroundEnabled_ || input.empty() ||
+        if ((!backgroundEnabled_ && !backgroundBlurEnabled_) ||
+            input.empty() ||
             !segmenter_.segment(
                 input.data(),
                 segmenter_.maskWidth(),
@@ -376,10 +393,17 @@ void CaptureEngine::segmentationLoop() {
             continue;
         }
 
-        compositeBackground(
-            sourceFrame.data(),
-            alpha
-        );
+        if (backgroundEnabled_) {
+            compositeBackground(
+                sourceFrame.data(),
+                alpha
+            );
+        } else if (backgroundBlurEnabled_) {
+            compositeBackgroundBlur(
+                sourceFrame.data(),
+                alpha
+            );
+        }
 
         {
             std::lock_guard<std::mutex> lock(frameMutex_);
@@ -390,6 +414,299 @@ void CaptureEngine::segmentationLoop() {
                     sourceFrame.data(),
                     sourceFrame.size()
                 );
+            }
+        }
+    }
+}
+
+void CaptureEngine::compositeBackgroundBlur(
+    uint8_t* rgba,
+    const std::vector<uint8_t>& alpha
+) {
+    if (!rgba ||
+        alpha.size() != static_cast<size_t>(width_ * height_) ||
+        !backgroundBlurEnabled_) {
+        return;
+    }
+
+    // Blur at quarter resolution for realtime performance.
+    constexpr int scale = 4;
+
+    const int blurWidth =
+        std::max(1, (width_ + scale - 1) / scale);
+    const int blurHeight =
+        std::max(1, (height_ + scale - 1) / scale);
+
+    const size_t blurPixels =
+        static_cast<size_t>(blurWidth * blurHeight);
+
+    // RGB is premultiplied by BACKGROUND confidence.
+    //
+    // This is important:
+    // foreground colours never become part of the blur kernel.
+    // We blur RGB * weight and weight independently, then normalize.
+    std::vector<float> weightedRgb(blurPixels * 3, 0.0f);
+    std::vector<float> weight(blurPixels, 0.0f);
+
+    for (int y = 0; y < blurHeight; ++y) {
+        const int sourceY = std::min(
+            height_ - 1,
+            y * scale + scale / 2
+        );
+
+        for (int x = 0; x < blurWidth; ++x) {
+            const int sourceX = std::min(
+                width_ - 1,
+                x * scale + scale / 2
+            );
+
+            const size_t sourcePixel =
+                static_cast<size_t>(
+                    sourceY * width_ + sourceX);
+
+            const size_t smallPixel =
+                static_cast<size_t>(
+                    y * blurWidth + x);
+
+            const uint8_t* source =
+                rgba + sourcePixel * 4;
+
+            const float subject =
+                static_cast<float>(alpha[sourcePixel]) / 255.0f;
+
+            // Make uncertain subject-edge pixels contribute even less
+            // to the background estimate.
+            float backgroundWeight = 1.0f - subject;
+            backgroundWeight *= backgroundWeight;
+
+            weight[smallPixel] = backgroundWeight;
+
+            weightedRgb[smallPixel * 3 + 0] =
+                source[0] * backgroundWeight;
+            weightedRgb[smallPixel * 3 + 1] =
+                source[1] * backgroundWeight;
+            weightedRgb[smallPixel * 3 + 2] =
+                source[2] * backgroundWeight;
+        }
+    }
+
+    const int strength = std::clamp(
+        backgroundBlurStrength_.load(), 0, 100);
+
+    const int radius = std::max(
+        1,
+        2 + strength * 10 / 100
+    );
+
+    // Blur weighted RGB and background weight together.
+    std::vector<float> horizontalRgb(blurPixels * 3, 0.0f);
+    std::vector<float> horizontalWeight(blurPixels, 0.0f);
+
+    std::vector<float> blurredRgb(blurPixels * 3, 0.0f);
+    std::vector<float> blurredWeight(blurPixels, 0.0f);
+
+    // Horizontal pass.
+    for (int y = 0; y < blurHeight; ++y) {
+        float rgbSum[3] = {0.0f, 0.0f, 0.0f};
+        float weightSum = 0.0f;
+
+        for (int x = -radius; x <= radius; ++x) {
+            const int sx =
+                std::clamp(x, 0, blurWidth - 1);
+
+            const size_t p =
+                static_cast<size_t>(
+                    y * blurWidth + sx);
+
+            weightSum += weight[p];
+
+            rgbSum[0] += weightedRgb[p * 3 + 0];
+            rgbSum[1] += weightedRgb[p * 3 + 1];
+            rgbSum[2] += weightedRgb[p * 3 + 2];
+        }
+
+        for (int x = 0; x < blurWidth; ++x) {
+            const size_t p =
+                static_cast<size_t>(
+                    y * blurWidth + x);
+
+            horizontalWeight[p] = weightSum;
+
+            horizontalRgb[p * 3 + 0] = rgbSum[0];
+            horizontalRgb[p * 3 + 1] = rgbSum[1];
+            horizontalRgb[p * 3 + 2] = rgbSum[2];
+
+            const int removeX =
+                std::clamp(
+                    x - radius,
+                    0,
+                    blurWidth - 1
+                );
+
+            const int addX =
+                std::clamp(
+                    x + radius + 1,
+                    0,
+                    blurWidth - 1
+                );
+
+            const size_t remove =
+                static_cast<size_t>(
+                    y * blurWidth + removeX);
+
+            const size_t add =
+                static_cast<size_t>(
+                    y * blurWidth + addX);
+
+            weightSum +=
+                weight[add] - weight[remove];
+
+            for (int channel = 0;
+                 channel < 3;
+                 ++channel) {
+                rgbSum[channel] +=
+                    weightedRgb[add * 3 + channel] -
+                    weightedRgb[remove * 3 + channel];
+            }
+        }
+    }
+
+    // Vertical pass.
+    for (int x = 0; x < blurWidth; ++x) {
+        float rgbSum[3] = {0.0f, 0.0f, 0.0f};
+        float weightSum = 0.0f;
+
+        for (int y = -radius; y <= radius; ++y) {
+            const int sy =
+                std::clamp(y, 0, blurHeight - 1);
+
+            const size_t p =
+                static_cast<size_t>(
+                    sy * blurWidth + x);
+
+            weightSum += horizontalWeight[p];
+
+            rgbSum[0] += horizontalRgb[p * 3 + 0];
+            rgbSum[1] += horizontalRgb[p * 3 + 1];
+            rgbSum[2] += horizontalRgb[p * 3 + 2];
+        }
+
+        for (int y = 0; y < blurHeight; ++y) {
+            const size_t p =
+                static_cast<size_t>(
+                    y * blurWidth + x);
+
+            blurredWeight[p] = weightSum;
+
+            blurredRgb[p * 3 + 0] = rgbSum[0];
+            blurredRgb[p * 3 + 1] = rgbSum[1];
+            blurredRgb[p * 3 + 2] = rgbSum[2];
+
+            const int removeY =
+                std::clamp(
+                    y - radius,
+                    0,
+                    blurHeight - 1
+                );
+
+            const int addY =
+                std::clamp(
+                    y + radius + 1,
+                    0,
+                    blurHeight - 1
+                );
+
+            const size_t remove =
+                static_cast<size_t>(
+                    removeY * blurWidth + x);
+
+            const size_t add =
+                static_cast<size_t>(
+                    addY * blurWidth + x);
+
+            weightSum +=
+                horizontalWeight[add] -
+                horizontalWeight[remove];
+
+            for (int channel = 0;
+                 channel < 3;
+                 ++channel) {
+                rgbSum[channel] +=
+                    horizontalRgb[add * 3 + channel] -
+                    horizontalRgb[remove * 3 + channel];
+            }
+        }
+    }
+
+    // Reconstruct normalized background colour.
+    std::vector<uint8_t> background(blurPixels * 3);
+
+    for (size_t pixel = 0; pixel < blurPixels; ++pixel) {
+        const float w = blurredWeight[pixel];
+
+        if (w > 0.001f) {
+            for (int channel = 0; channel < 3; ++channel) {
+                background[pixel * 3 + channel] =
+                    static_cast<uint8_t>(
+                        std::clamp(
+                            blurredRgb[pixel * 3 + channel] / w,
+                            0.0f,
+                            255.0f
+                        )
+                    );
+            }
+        } else {
+            // This normally only happens deep inside a large subject.
+            // It is hidden by subject alpha anyway.
+            background[pixel * 3 + 0] = 0;
+            background[pixel * 3 + 1] = 0;
+            background[pixel * 3 + 2] = 0;
+        }
+    }
+
+    // Composite with the ORIGINAL matched RVM alpha.
+    //
+    // No sqrt(), threshold or extra matte manipulation here.
+    // Background reconstruction and subject matte are separate jobs.
+    for (int y = 0; y < height_; ++y) {
+        const int by =
+            std::min(blurHeight - 1, y / scale);
+
+        for (int x = 0; x < width_; ++x) {
+            const int bx =
+                std::min(blurWidth - 1, x / scale);
+
+            const size_t pixel =
+                static_cast<size_t>(y * width_ + x);
+
+            const size_t backgroundPixel =
+                static_cast<size_t>(
+                    by * blurWidth + bx);
+
+            uint8_t* foreground =
+                rgba + pixel * 4;
+
+            const uint8_t* blurredBackground =
+                background.data() +
+                backgroundPixel * 3;
+
+            const int subjectAlpha = alpha[pixel];
+            const int backgroundAlpha =
+                255 - subjectAlpha;
+
+            for (int channel = 0;
+                 channel < 3;
+                 ++channel) {
+                foreground[channel] =
+                    static_cast<uint8_t>(
+                        (
+                            foreground[channel] *
+                                subjectAlpha +
+                            blurredBackground[channel] *
+                                backgroundAlpha +
+                            127
+                        ) / 255
+                    );
             }
         }
     }

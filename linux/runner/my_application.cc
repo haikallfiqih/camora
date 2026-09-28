@@ -37,6 +37,8 @@ static std::atomic<bool> g_texture_notifier_running{false};
 static std::thread g_texture_notifier;
 static bool g_background_enabled = false;
 static std::string g_background_path;
+static bool g_background_blur_enabled = false;
+static int g_background_blur_strength = 70;
 
 static bool ensure_segmentation_model() {
   if (g_camora_capture.backgroundReplacementAvailable()) return true;
@@ -321,6 +323,10 @@ static void video_method_call_cb(
           fl_value_lookup_string(args, "backgroundImageEnabled");
       FlValue* background_path_value =
           fl_value_lookup_string(args, "backgroundImagePath");
+      FlValue* background_blur_enabled_value =
+          fl_value_lookup_string(args, "backgroundBlurEnabled");
+      FlValue* background_blur_strength_value =
+          fl_value_lookup_string(args, "backgroundBlurStrength");
 
       if (enabled_value &&
           fl_value_get_type(enabled_value) == FL_VALUE_TYPE_BOOL) {
@@ -342,11 +348,43 @@ static void video_method_call_cb(
       } else {
         g_background_path.clear();
       }
+
+      if (background_blur_enabled_value &&
+          fl_value_get_type(background_blur_enabled_value) ==
+              FL_VALUE_TYPE_BOOL) {
+        g_background_blur_enabled =
+            fl_value_get_bool(background_blur_enabled_value);
+      }
+
+      if (background_blur_strength_value &&
+          fl_value_get_type(background_blur_strength_value) ==
+              FL_VALUE_TYPE_INT) {
+        g_background_blur_strength = static_cast<int>(
+            fl_value_get_int(background_blur_strength_value));
+      }
     }
 
     g_camora_capture.setLowLightEnhancement(
         low_light_enabled, low_light_strength);
-    const bool effects_available = update_background_replacement();
+
+    bool effects_available = true;
+
+    if (g_background_blur_enabled) {
+      effects_available = ensure_segmentation_model();
+    }
+
+    g_camora_capture.setBackgroundBlur(
+        g_background_blur_enabled && effects_available,
+        g_background_blur_strength);
+
+    if (g_background_blur_enabled) {
+      // Segmentation background effects are mutually exclusive.
+      g_background_enabled = false;
+    }
+
+    if (!update_background_replacement()) {
+      effects_available = false;
+    }
 
     g_autoptr(FlValue) result = fl_value_new_bool(effects_available);
     g_autoptr(FlMethodResponse) response = FL_METHOD_RESPONSE(

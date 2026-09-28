@@ -28,6 +28,8 @@ class CamoraVideo {
     required double lowLightStrength,
     required bool backgroundImageEnabled,
     String? backgroundImagePath,
+    required bool backgroundBlurEnabled,
+    required double backgroundBlurStrength,
   }) async {
     try {
       final available = await _channel.invokeMethod<bool>('setEffects', {
@@ -35,6 +37,8 @@ class CamoraVideo {
         'lowLightStrength': (lowLightStrength * 100).round(),
         'backgroundImageEnabled': backgroundImageEnabled,
         'backgroundImagePath': backgroundImagePath,
+        'backgroundBlurEnabled': backgroundBlurEnabled,
+        'backgroundBlurStrength': (backgroundBlurStrength * 100).round(),
       });
       return available ?? true;
     } on MissingPluginException {

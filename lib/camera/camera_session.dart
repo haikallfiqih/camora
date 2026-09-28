@@ -25,6 +25,8 @@ class CameraSession extends ChangeNotifier {
   double lowLightStrength = 0.5;
   bool backgroundImageEnabled = false;
   String? backgroundImagePath;
+  bool backgroundBlurEnabled = false;
+  double backgroundBlurStrength = 0.7;
   String? error;
   String? previewError;
 
@@ -152,12 +154,31 @@ class CameraSession extends ChangeNotifier {
     await _pushEffects();
   }
 
+  Future<void> configureBackgroundBlur({
+    required bool enabled,
+    required double strength,
+  }) async {
+    backgroundBlurEnabled = enabled;
+    backgroundBlurStrength = strength.clamp(0.0, 1.0);
+
+    if (enabled) {
+      backgroundImageEnabled = false;
+    }
+
+    await _pushEffects();
+  }
+
   Future<void> configureBackgroundImage({
     required bool enabled,
     String? path,
   }) async {
     backgroundImageEnabled = enabled && path != null;
     backgroundImagePath = path;
+
+    if (backgroundImageEnabled) {
+      backgroundBlurEnabled = false;
+    }
+
     await _pushEffects();
   }
 
@@ -168,6 +189,8 @@ class CameraSession extends ChangeNotifier {
       lowLightStrength: lowLightStrength,
       backgroundImageEnabled: backgroundImageEnabled,
       backgroundImagePath: backgroundImagePath,
+      backgroundBlurEnabled: backgroundBlurEnabled,
+      backgroundBlurStrength: backgroundBlurStrength,
     );
     if (nativeEffectsAvailable != wasAvailable) notifyListeners();
   }

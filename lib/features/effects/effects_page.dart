@@ -21,6 +21,7 @@ class EffectsPage extends StatelessWidget {
       'Background Blur',
       'Soften the area behind you while keeping the subject clear.',
       Icons.blur_on_outlined,
+      available: true,
     ),
     EffectDefinition(
       CameraEffect.backgroundRemoval,
@@ -168,6 +169,11 @@ class _EffectList extends StatelessWidget {
                     enabled: value,
                     strength: appState.lowLightStrength,
                   );
+                } else if (effect.effect == CameraEffect.backgroundBlur) {
+                  session.configureBackgroundBlur(
+                    enabled: value,
+                    strength: appState.backgroundBlurStrength,
+                  );
                 } else if (effect.effect == CameraEffect.backgroundImage) {
                   session.configureBackgroundImage(
                     enabled: value,
@@ -307,6 +313,12 @@ class _EffectInspector extends StatelessWidget {
                             strength: appState.lowLightStrength,
                           );
                         } else if (definition.effect ==
+                            CameraEffect.backgroundBlur) {
+                          session.configureBackgroundBlur(
+                            enabled: value,
+                            strength: appState.backgroundBlurStrength,
+                          );
+                        } else if (definition.effect ==
                             CameraEffect.backgroundImage) {
                           session.configureBackgroundImage(
                             enabled: value,
@@ -392,7 +404,15 @@ class _EffectSettings extends StatelessWidget {
     CameraEffect.backgroundBlur => _EffectSlider(
       label: 'Blur strength',
       value: appState.backgroundBlurStrength,
-      onChanged: appState.setBackgroundBlurStrength,
+      onChanged: (value) {
+        appState.setBackgroundBlurStrength(value);
+        if (appState.effectEnabled(CameraEffect.backgroundBlur)) {
+          session.configureBackgroundBlur(
+            enabled: true,
+            strength: value,
+          );
+        }
+      },
     ),
     CameraEffect.backgroundRemoval => const _SettingMessage(
       icon: Icons.layers_clear_outlined,
