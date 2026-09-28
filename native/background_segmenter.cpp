@@ -241,7 +241,9 @@ bool BackgroundSegmenter::segment(
         mask = std::move(freshMask);
     } else {
         for (size_t i = 0; i < count; ++i) {
-            mask[i] = 0.72f * freshMask[i] + 0.28f * mask[i];
+            // Keep just enough history to calm model shimmer without leaving a
+            // visible silhouette behind a moving subject.
+            mask[i] = 0.88f * freshMask[i] + 0.12f * mask[i];
         }
     }
     return true;
