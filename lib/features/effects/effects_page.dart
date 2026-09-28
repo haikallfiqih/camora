@@ -33,6 +33,7 @@ class EffectsPage extends StatelessWidget {
       'Background Image',
       'Place the subject over an image selected from your computer.',
       Icons.image_outlined,
+      available: true,
     ),
     EffectDefinition(
       CameraEffect.autoFraming,
@@ -57,7 +58,7 @@ class EffectsPage extends StatelessWidget {
         subtitle: 'Prepare enhancements for the Camora processing pipeline.',
         trailing: StatusPill(
           session.nativeEffectsAvailable
-              ? 'Low light available'
+              ? 'Native effects available'
               : 'Restart required',
           available: session.nativeEffectsAvailable,
         ),
@@ -128,7 +129,7 @@ class _AvailabilityNotice extends StatelessWidget {
         Expanded(
           child: Text(
             'Low Light Enhancement is processed live in the native camera pipeline. '
-            'You can prepare a replacement image now; applying it remains unavailable until subject segmentation is added.',
+            'Background Image and Low Light Enhancement are processed live in the native camera pipeline.',
             style: TextStyle(color: Color(0xFFD6DAE3), height: 1.4),
           ),
         ),
@@ -153,7 +154,11 @@ class _EffectList extends StatelessWidget {
               definition: effect,
               selected: appState.selectedEffect == effect.effect,
               configured: appState.effectEnabled(effect.effect),
-              available: effect.available && session.nativeEffectsAvailable,
+              available:
+                  effect.available &&
+                  session.nativeEffectsAvailable &&
+                  (effect.effect != CameraEffect.backgroundImage ||
+                      appState.backgroundImagePath != null),
               onSelected: () => appState.selectEffect(effect.effect),
               onChanged: (value) {
                 appState.selectEffect(effect.effect);
@@ -162,6 +167,11 @@ class _EffectList extends StatelessWidget {
                   session.configureLowLight(
                     enabled: value,
                     strength: appState.lowLightStrength,
+                  );
+                } else if (effect.effect == CameraEffect.backgroundImage) {
+                  session.configureBackgroundImage(
+                    enabled: value,
+                    path: appState.backgroundImagePath,
                   );
                 }
               },
@@ -284,13 +294,25 @@ class _EffectInspector extends StatelessWidget {
               Switch(
                 value: configured,
                 onChanged:
-                    definition.available && session.nativeEffectsAvailable
+                    definition.available &&
+                        session.nativeEffectsAvailable &&
+                        (definition.effect != CameraEffect.backgroundImage ||
+                            appState.backgroundImagePath != null)
                     ? (value) {
                         appState.setEffect(definition.effect, value);
-                        session.configureLowLight(
-                          enabled: value,
-                          strength: appState.lowLightStrength,
-                        );
+                        if (definition.effect ==
+                            CameraEffect.lowLightEnhancement) {
+                          session.configureLowLight(
+                            enabled: value,
+                            strength: appState.lowLightStrength,
+                          );
+                        } else if (definition.effect ==
+                            CameraEffect.backgroundImage) {
+                          session.configureBackgroundImage(
+                            enabled: value,
+                            path: appState.backgroundImagePath,
+                          );
+                        }
                       }
                     : null,
               ),
@@ -304,20 +326,23 @@ class _EffectInspector extends StatelessWidget {
           const SizedBox(height: 16),
           const Divider(height: 1),
           const SizedBox(height: 18),
-          if ((definition.available && session.nativeEffectsAvailable) ||
-              definition.effect == CameraEffect.backgroundImage)
-            _EffectSettings(
-              effect: definition.effect,
-              session: session,
-              appState: appState,
-            )
-          else
-            const _SettingMessage(
-              icon: Icons.lock_outline_rounded,
-              title: 'Processor unavailable',
-              message: 'This effect requires subject segmentation, which is not installed yet.',
+          Expanded(
+            child: SingleChildScrollView(
+              child:
+                  (definition.available && session.nativeEffectsAvailable) ||
+                      definition.effect == CameraEffect.backgroundImage
+                  ? _EffectSettings(
+                      effect: definition.effect,
+                      session: session,
+                      appState: appState,
+                    )
+                  : const _SettingMessage(
+                      icon: Icons.lock_outline_rounded,
+                      title: 'Processor unavailable',
+                      message: 'This effect requires subject segmentation, which is not installed yet.',
+                    ),
             ),
-          const Spacer(),
+          ),
           const Divider(height: 1),
           const SizedBox(height: 12),
           Row(
@@ -374,7 +399,10 @@ class _EffectSettings extends StatelessWidget {
       title: 'Transparent background',
       message: 'The processed output will use transparency where supported.',
     ),
-    CameraEffect.backgroundImage => _BackgroundImageSetting(appState: appState),
+    CameraEffect.backgroundImage => _BackgroundImageSetting(
+      session: session,
+      appState: appState,
+    ),
     CameraEffect.autoFraming => _EffectSlider(
       label: 'Tracking sensitivity',
       value: appState.autoFramingSensitivity,
@@ -424,8 +452,12 @@ class _EffectSlider extends StatelessWidget {
 }
 
 class _BackgroundImageSetting extends StatelessWidget {
-  const _BackgroundImageSetting({required this.appState});
+  const _BackgroundImageSetting({
+    required this.session,
+    required this.appState,
+  });
 
+  final CameraSession session;
   final AppState appState;
 
   Future<void> _chooseImage(BuildContext context) async {
@@ -446,6 +478,8 @@ class _BackgroundImageSetting extends StatelessWidget {
         return;
       }
       appState.setBackgroundImage(path);
+      appState.setEffect(CameraEffect.backgroundImage, true);
+      await session.configureBackgroundImage(enabled: true, path: path);
     } catch (error) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(
@@ -507,7 +541,11 @@ class _BackgroundImageSetting extends StatelessWidget {
             ),
             if (path != null)
               TextButton.icon(
-                onPressed: () => appState.setBackgroundImage(null),
+                onPressed: () {
+                  appState.setBackgroundImage(null);
+                  appState.setEffect(CameraEffect.backgroundImage, false);
+                  session.configureBackgroundImage(enabled: false);
+                },
                 icon: const Icon(Icons.delete_outline_rounded),
                 label: const Text('Remove'),
               ),
@@ -517,15 +555,11 @@ class _BackgroundImageSetting extends StatelessWidget {
         const Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(
-              Icons.lock_outline_rounded,
-              size: 15,
-              color: CamoraColors.muted,
-            ),
+            Icon(Icons.bolt_rounded, size: 15, color: CamoraColors.success),
             SizedBox(width: 7),
             Expanded(
               child: Text(
-                'Your selection is ready, but cannot be applied until subject segmentation is available.',
+                'The selected image is applied live while Background Image is enabled.',
                 style: TextStyle(
                   color: CamoraColors.muted,
                   fontSize: 11,

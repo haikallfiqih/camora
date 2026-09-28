@@ -33,6 +33,10 @@ bool CaptureEngine::start(
         width_ * height_ * 4
     );
 
+    subjectMask_.clear();
+    subjectAlpha_.clear();
+    segmentationFrame_ = 0;
+
     running_ = true;
 
     thread_ = std::thread(
@@ -73,6 +77,91 @@ void CaptureEngine::setLowLightEnhancement(
     }
 }
 
+bool CaptureEngine::configureSegmentationModel(
+    const std::string& modelPath
+) {
+    return segmenter_.initialize(modelPath);
+}
+
+void CaptureEngine::setBackgroundReplacement(
+    bool enabled,
+    std::vector<uint8_t> pixels,
+    int width,
+    int height
+) {
+    std::lock_guard<std::mutex> lock(backgroundMutex_);
+    backgroundPixels_ = std::move(pixels);
+    backgroundWidth_ = width;
+    backgroundHeight_ = height;
+    backgroundEnabled_ = enabled && !backgroundPixels_.empty();
+}
+
+void CaptureEngine::compositeBackground(uint8_t* rgba) {
+    if (!backgroundEnabled_ || !segmenter_.available()) return;
+
+    const bool refreshMask = segmentationFrame_++ % 2 == 0 ||
+        subjectAlpha_.size() != static_cast<size_t>(width_ * height_);
+    if (refreshMask) {
+        if (!segmenter_.segment(rgba, width_, height_, subjectMask_)) return;
+
+        const int maskWidth = segmenter_.maskWidth();
+        const int maskHeight = segmenter_.maskHeight();
+        subjectAlpha_.resize(static_cast<size_t>(width_ * height_));
+        for (int y = 0; y < height_; ++y) {
+            const float maskY = height_ > 1
+                ? y * (maskHeight - 1.0f) / (height_ - 1.0f)
+                : 0.0f;
+            const int y0 = static_cast<int>(maskY);
+            const int y1 = std::min(maskHeight - 1, y0 + 1);
+            const float fy = maskY - y0;
+            for (int x = 0; x < width_; ++x) {
+                const float maskX = width_ > 1
+                    ? x * (maskWidth - 1.0f) / (width_ - 1.0f)
+                    : 0.0f;
+                const int x0 = static_cast<int>(maskX);
+                const int x1 = std::min(maskWidth - 1, x0 + 1);
+                const float fx = maskX - x0;
+                const float top = subjectMask_[y0 * maskWidth + x0] *
+                        (1.0f - fx) +
+                    subjectMask_[y0 * maskWidth + x1] * fx;
+                const float bottom = subjectMask_[y1 * maskWidth + x0] *
+                        (1.0f - fx) +
+                    subjectMask_[y1 * maskWidth + x1] * fx;
+                const float probability = top * (1.0f - fy) + bottom * fy;
+                const float confidence = std::clamp(
+                    (probability - 0.20f) / 0.55f, 0.0f, 1.0f);
+                const float feathered = confidence * confidence *
+                    (3.0f - 2.0f * confidence);
+                subjectAlpha_[y * width_ + x] = static_cast<uint8_t>(
+                    feathered * 255.0f);
+            }
+        }
+    }
+    if (subjectAlpha_.empty()) return;
+
+    std::lock_guard<std::mutex> lock(backgroundMutex_);
+    if (!backgroundEnabled_ || backgroundPixels_.empty() ||
+        backgroundWidth_ <= 0 || backgroundHeight_ <= 0) return;
+
+    for (int y = 0; y < height_; ++y) {
+        const int backgroundY = std::min(
+            backgroundHeight_ - 1, y * backgroundHeight_ / height_);
+        for (int x = 0; x < width_; ++x) {
+            const int backgroundX = std::min(
+                backgroundWidth_ - 1, x * backgroundWidth_ / width_);
+            uint8_t* foreground = rgba + (y * width_ + x) * 4;
+            const uint8_t* background = backgroundPixels_.data() +
+                (backgroundY * backgroundWidth_ + backgroundX) * 4;
+            const int alpha = subjectAlpha_[y * width_ + x];
+            const int inverseAlpha = 255 - alpha;
+            for (int channel = 0; channel < 3; ++channel) {
+                foreground[channel] = static_cast<uint8_t>(
+                    (foreground[channel] * alpha +
+                     background[channel] * inverseAlpha + 127) / 255);
+            }
+        }
+    }
+}
 bool CaptureEngine::copyLatestFrame(
     uint8_t* destination,
     int destinationSize
@@ -229,6 +318,8 @@ void CaptureEngine::captureLoop() {
                     map.data,
                     required
                 );
+
+                compositeBackground(latestFrame_.data());
             }
 
             gst_buffer_unmap(

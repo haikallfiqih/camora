@@ -16,6 +16,7 @@ add_library(
 
     camora_v4l2.cpp
     capture_engine.cpp
+    background_segmenter.cpp
 )
 
 target_include_directories(
@@ -34,6 +35,7 @@ target_link_libraries(
     camora_v4l2
     PRIVATE
     ${GST_LIBRARIES}
+    ${CMAKE_DL_LIBS}
 )
 
 target_compile_options(

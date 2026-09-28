@@ -332,15 +332,45 @@ class _StudioEffects extends StatelessWidget {
           label: appState.backgroundImagePath == null
               ? 'Background Image'
               : 'Background Image ready',
-          trailing: TextButton(
-            onPressed: () {
-              appState.selectEffect(CameraEffect.backgroundImage);
-              appState.navigate(CamoraPage.effects);
-            },
-            child: Text(
-              appState.backgroundImagePath == null ? 'Choose' : 'Change',
-            ),
-          ),
+          trailing: appState.backgroundImagePath == null
+              ? TextButton(
+                  onPressed: () {
+                    appState.selectEffect(CameraEffect.backgroundImage);
+                    appState.navigate(CamoraPage.effects);
+                  },
+                  child: const Text('Choose'),
+                )
+              : Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: 'Change background image',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () {
+                        appState.selectEffect(CameraEffect.backgroundImage);
+                        appState.navigate(CamoraPage.effects);
+                      },
+                      icon: const Icon(Icons.image_search_rounded, size: 18),
+                    ),
+                    Switch(
+                      value: appState.effectEnabled(
+                        CameraEffect.backgroundImage,
+                      ),
+                      onChanged: session.nativeEffectsAvailable
+                          ? (value) {
+                              appState.setEffect(
+                                CameraEffect.backgroundImage,
+                                value,
+                              );
+                              session.configureBackgroundImage(
+                                enabled: value,
+                                path: appState.backgroundImagePath,
+                              );
+                            }
+                          : null,
+                    ),
+                  ],
+                ),
         ),
         ..._unavailableEffects.map(
           (effect) => _StudioEffectRow(

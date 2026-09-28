@@ -26,13 +26,17 @@ class CamoraVideo {
   static Future<bool> setEffects({
     required bool lowLightEnabled,
     required double lowLightStrength,
+    required bool backgroundImageEnabled,
+    String? backgroundImagePath,
   }) async {
     try {
-      await _channel.invokeMethod<void>('setEffects', {
+      final available = await _channel.invokeMethod<bool>('setEffects', {
         'lowLightEnabled': lowLightEnabled,
         'lowLightStrength': (lowLightStrength * 100).round(),
+        'backgroundImageEnabled': backgroundImageEnabled,
+        'backgroundImagePath': backgroundImagePath,
       });
-      return true;
+      return available ?? true;
     } on MissingPluginException {
       return false;
     }

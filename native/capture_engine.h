@@ -7,6 +7,8 @@
 #include <thread>
 #include <vector>
 
+#include "background_segmenter.h"
+
 class CaptureEngine {
 public:
     CaptureEngine();
@@ -26,6 +28,19 @@ public:
         int strength
     );
 
+    bool configureSegmentationModel(const std::string& modelPath);
+
+    void setBackgroundReplacement(
+        bool enabled,
+        std::vector<uint8_t> pixels,
+        int width,
+        int height
+    );
+
+    bool backgroundReplacementAvailable() const {
+        return segmenter_.available();
+    }
+
     bool copyLatestFrame(
         uint8_t* destination,
         int destinationSize
@@ -43,6 +58,7 @@ public:
 
 private:
     void captureLoop();
+    void compositeBackground(uint8_t* rgba);
 
     std::string device_;
 
@@ -58,6 +74,16 @@ private:
 
     std::mutex effectMutex_;
     void* lowLightFilter_ = nullptr;
+
+    BackgroundSegmenter segmenter_;
+    std::atomic<bool> backgroundEnabled_{false};
+    std::mutex backgroundMutex_;
+    std::vector<uint8_t> backgroundPixels_;
+    int backgroundWidth_ = 0;
+    int backgroundHeight_ = 0;
+    std::vector<float> subjectMask_;
+    std::vector<uint8_t> subjectAlpha_;
+    int segmentationFrame_ = 0;
 
     std::mutex frameMutex_;
     std::vector<uint8_t> latestFrame_;

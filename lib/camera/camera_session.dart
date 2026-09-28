@@ -23,6 +23,8 @@ class CameraSession extends ChangeNotifier {
   bool lowLightEnabled = false;
   bool nativeEffectsAvailable = true;
   double lowLightStrength = 0.5;
+  bool backgroundImageEnabled = false;
+  String? backgroundImagePath;
   String? error;
   String? previewError;
 
@@ -147,14 +149,27 @@ class CameraSession extends ChangeNotifier {
   }) async {
     lowLightEnabled = enabled;
     lowLightStrength = strength.clamp(0.0, 1.0);
+    await _pushEffects();
+  }
+
+  Future<void> configureBackgroundImage({
+    required bool enabled,
+    String? path,
+  }) async {
+    backgroundImageEnabled = enabled && path != null;
+    backgroundImagePath = path;
+    await _pushEffects();
+  }
+
+  Future<void> _pushEffects() async {
     final wasAvailable = nativeEffectsAvailable;
     nativeEffectsAvailable = await CamoraVideo.setEffects(
       lowLightEnabled: lowLightEnabled,
       lowLightStrength: lowLightStrength,
+      backgroundImageEnabled: backgroundImageEnabled,
+      backgroundImagePath: backgroundImagePath,
     );
-    if (nativeEffectsAvailable != wasAvailable) {
-      notifyListeners();
-    }
+    if (nativeEffectsAvailable != wasAvailable) notifyListeners();
   }
 
   Future<void> startPreview() async {
@@ -166,10 +181,7 @@ class CameraSession extends ChangeNotifier {
     previewError = null;
     notifyListeners();
     try {
-      nativeEffectsAvailable = await CamoraVideo.setEffects(
-        lowLightEnabled: lowLightEnabled,
-        lowLightStrength: lowLightStrength,
-      );
+      await _pushEffects();
       textureId = await CamoraVideo.start(
         device: camera.path,
         width: format.width,

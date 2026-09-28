@@ -17,6 +17,7 @@ add_executable(${BINARY_NAME}
 
   "../../native/camora_v4l2.cpp"
   "../../native/capture_engine.cpp"
+  "../../native/background_segmenter.cpp"
 )
 
 apply_standard_settings(${BINARY_NAME})
@@ -47,6 +48,7 @@ target_link_libraries(
   flutter
   PkgConfig::GTK
   PkgConfig::GST
+  ${CMAKE_DL_LIBS}
 )
 
 add_dependencies(
