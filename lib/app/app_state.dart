@@ -18,6 +18,7 @@ class AppState extends ChangeNotifier {
   double backgroundBlurStrength = 0.7;
   double autoFramingSensitivity = 0.5;
   double lowLightStrength = 0.5;
+  String? backgroundImagePath;
 
   bool startPreviewOnLaunch = false;
   bool minimizeToTray = false;
@@ -64,6 +65,12 @@ class AppState extends ChangeNotifier {
 
   void setLowLightStrength(double value) {
     lowLightStrength = value;
+    notifyListeners();
+  }
+
+  void setBackgroundImage(String? path) {
+    if (backgroundImagePath == path) return;
+    backgroundImagePath = path;
     notifyListeners();
   }
 

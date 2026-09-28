@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../app/app_state.dart';
@@ -125,7 +128,7 @@ class _AvailabilityNotice extends StatelessWidget {
         Expanded(
           child: Text(
             'Low Light Enhancement is processed live in the native camera pipeline. '
-            'Background and framing effects remain unavailable until subject segmentation is added.',
+            'You can prepare a replacement image now; applying it remains unavailable until subject segmentation is added.',
             style: TextStyle(color: Color(0xFFD6DAE3), height: 1.4),
           ),
         ),
@@ -301,7 +304,8 @@ class _EffectInspector extends StatelessWidget {
           const SizedBox(height: 16),
           const Divider(height: 1),
           const SizedBox(height: 18),
-          if (definition.available && session.nativeEffectsAvailable)
+          if ((definition.available && session.nativeEffectsAvailable) ||
+              definition.effect == CameraEffect.backgroundImage)
             _EffectSettings(
               effect: definition.effect,
               session: session,
@@ -370,7 +374,7 @@ class _EffectSettings extends StatelessWidget {
       title: 'Transparent background',
       message: 'The processed output will use transparency where supported.',
     ),
-    CameraEffect.backgroundImage => const _BackgroundImageSetting(),
+    CameraEffect.backgroundImage => _BackgroundImageSetting(appState: appState),
     CameraEffect.autoFraming => _EffectSlider(
       label: 'Tracking sensitivity',
       value: appState.autoFramingSensitivity,
@@ -420,26 +424,120 @@ class _EffectSlider extends StatelessWidget {
 }
 
 class _BackgroundImageSetting extends StatelessWidget {
-  const _BackgroundImageSetting();
+  const _BackgroundImageSetting({required this.appState});
+
+  final AppState appState;
+
+  Future<void> _chooseImage(BuildContext context) async {
+    try {
+      final result = await FilePicker.pickFile(
+        type: FileType.custom,
+        allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
+        dialogTitle: 'Choose a background image',
+      );
+      if (!context.mounted || result == null) return;
+      final path = result.path;
+      if (path == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('The selected image has no local path.'),
+          ),
+        );
+        return;
+      }
+      appState.setBackgroundImage(path);
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not choose image: $error')));
+    }
+  }
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      const Text('Background source'),
-      const SizedBox(height: 10),
-      OutlinedButton.icon(
-        onPressed: null,
-        icon: const Icon(Icons.add_photo_alternate_outlined),
-        label: const Text('Choose image'),
-      ),
-      const SizedBox(height: 9),
-      const Text(
-        'Image selection will be enabled with the effects backend.',
-        style: TextStyle(color: CamoraColors.muted, fontSize: 11),
-      ),
-    ],
-  );
+  Widget build(BuildContext context) {
+    final path = appState.backgroundImagePath;
+    final fileName = path?.split(Platform.pathSeparator).last;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Background source'),
+        const SizedBox(height: 10),
+        if (path != null) ...[
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: AspectRatio(
+              aspectRatio: 16 / 9,
+              child: Image.file(
+                File(path),
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  color: CamoraColors.surfaceRaised,
+                  alignment: Alignment.center,
+                  child: const Icon(
+                    Icons.broken_image_outlined,
+                    color: CamoraColors.muted,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 9),
+          Text(
+            fileName!,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 12),
+          ),
+          const SizedBox(height: 9),
+        ],
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            OutlinedButton.icon(
+              onPressed: () => _chooseImage(context),
+              icon: Icon(
+                path == null
+                    ? Icons.add_photo_alternate_outlined
+                    : Icons.swap_horiz_rounded,
+              ),
+              label: Text(path == null ? 'Choose image' : 'Replace'),
+            ),
+            if (path != null)
+              TextButton.icon(
+                onPressed: () => appState.setBackgroundImage(null),
+                icon: const Icon(Icons.delete_outline_rounded),
+                label: const Text('Remove'),
+              ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        const Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              Icons.lock_outline_rounded,
+              size: 15,
+              color: CamoraColors.muted,
+            ),
+            SizedBox(width: 7),
+            Expanded(
+              child: Text(
+                'Your selection is ready, but cannot be applied until subject segmentation is available.',
+                style: TextStyle(
+                  color: CamoraColors.muted,
+                  fontSize: 11,
+                  height: 1.35,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
 }
 
 class _SettingMessage extends StatelessWidget {

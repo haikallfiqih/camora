@@ -271,7 +271,6 @@ class _StudioEffects extends StatelessWidget {
   static const _unavailableEffects = [
     ('Background Blur', Icons.blur_on_outlined),
     ('Background Removal', Icons.content_cut_outlined),
-    ('Background Image', Icons.image_outlined),
     ('Auto Framing', Icons.center_focus_strong_outlined),
   ];
 
@@ -328,6 +327,21 @@ class _StudioEffects extends StatelessWidget {
             },
           ),
         ],
+        _StudioEffectRow(
+          icon: Icons.image_outlined,
+          label: appState.backgroundImagePath == null
+              ? 'Background Image'
+              : 'Background Image ready',
+          trailing: TextButton(
+            onPressed: () {
+              appState.selectEffect(CameraEffect.backgroundImage);
+              appState.navigate(CamoraPage.effects);
+            },
+            child: Text(
+              appState.backgroundImagePath == null ? 'Choose' : 'Change',
+            ),
+          ),
+        ),
         ..._unavailableEffects.map(
           (effect) => _StudioEffectRow(
             icon: effect.$2,
