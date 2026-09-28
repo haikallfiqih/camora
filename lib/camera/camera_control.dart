@@ -2,14 +2,9 @@ class CameraControlOption {
   final int value;
   final String label;
 
-  const CameraControlOption({
-    required this.value,
-    required this.label,
-  });
+  const CameraControlOption({required this.value, required this.label});
 
-  factory CameraControlOption.fromJson(
-    Map<String, dynamic> json,
-  ) {
+  factory CameraControlOption.fromJson(Map<String, dynamic> json) {
     return CameraControlOption(
       value: (json['value'] as num).toInt(),
       label: json['label'].toString(),
@@ -46,9 +41,7 @@ class CameraControl {
     required this.options,
   });
 
-  factory CameraControl.fromJson(
-    Map<String, dynamic> json,
-  ) {
+  factory CameraControl.fromJson(Map<String, dynamic> json) {
     return CameraControl(
       id: (json['id'] as num).toInt(),
       name: json['name'] as String,
@@ -56,19 +49,15 @@ class CameraControl {
       min: (json['min'] as num).toInt(),
       max: (json['max'] as num).toInt(),
       step: (json['step'] as num).toInt(),
-      defaultValue:
-          (json['default'] as num).toInt(),
+      defaultValue: (json['default'] as num).toInt(),
       value: (json['value'] as num).toInt(),
       inactive: json['inactive'] as bool,
-      options:
-          (json['options'] as List<dynamic>? ?? [])
-              .map(
-                (item) =>
-                    CameraControlOption.fromJson(
-                  item as Map<String, dynamic>,
-                ),
-              )
-              .toList(),
+      options: (json['options'] as List<dynamic>? ?? [])
+          .map(
+            (item) =>
+                CameraControlOption.fromJson(item as Map<String, dynamic>),
+          )
+          .toList(),
     );
   }
 }

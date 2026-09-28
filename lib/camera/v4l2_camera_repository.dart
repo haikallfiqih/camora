@@ -1,151 +1,84 @@
 import 'dart:convert';
-import 'dart:ffi';
-import 'dart:io';
 
-import 'package:ffi/ffi.dart';
+import 'package:flutter/services.dart';
 
 import 'camera_control.dart';
 import 'camera_device.dart';
-
-typedef _NativeListCameras =
-    Pointer<Utf8> Function();
-
-typedef _DartListCameras =
-    Pointer<Utf8> Function();
-
-typedef _NativeListControls =
-    Pointer<Utf8> Function(Pointer<Utf8>);
-
-typedef _DartListControls =
-    Pointer<Utf8> Function(Pointer<Utf8>);
-
-typedef _NativeSetControl =
-    Int32 Function(
-      Pointer<Utf8>,
-      Uint32,
-      Int32,
-    );
-
-typedef _DartSetControl =
-    int Function(
-      Pointer<Utf8>,
-      int,
-      int,
-    );
+import 'camera_format.dart';
 
 class V4l2CameraRepository {
-  late final DynamicLibrary _library;
+  static const _channel = MethodChannel('dev.tapticlabs.camora/camera');
 
-  late final _DartListCameras _nativeListCameras;
-  late final _DartListControls _nativeListControls;
-  late final _DartSetControl _nativeSetControl;
+  Future<List<CameraDevice>> listCameras() async {
+    final raw = await _channel.invokeMethod<String>('listCameras');
 
-  V4l2CameraRepository() {
-    _library = _openLibrary();
-
-    _nativeListCameras =
-        _library.lookupFunction<
-            _NativeListCameras,
-            _DartListCameras>(
-          'camora_list_cameras',
-        );
-
-    _nativeListControls =
-        _library.lookupFunction<
-            _NativeListControls,
-            _DartListControls>(
-          'camora_list_controls',
-        );
-
-    _nativeSetControl =
-        _library.lookupFunction<
-            _NativeSetControl,
-            _DartSetControl>(
-          'camora_set_control',
-        );
-  }
-
-  DynamicLibrary _openLibrary() {
-    final current =
-        Directory.current.path;
-
-    final candidates = [
-      '$current/build/native/libcamora_v4l2.so',
-      'libcamora_v4l2.so',
-    ];
-
-    for (final path in candidates) {
-      try {
-        return DynamicLibrary.open(path);
-      } catch (_) {}
+    if (raw == null) {
+      return [];
     }
 
-    throw StateError(
-      'Could not load libcamora_v4l2.so.',
-    );
-  }
-
-  List<CameraDevice> listCameras() {
-    final raw =
-        _nativeListCameras().toDartString();
-
-    final data =
-        jsonDecode(raw) as List<dynamic>;
+    final data = jsonDecode(raw) as List<dynamic>;
 
     return data
-        .map(
-          (item) =>
-              CameraDevice.fromJson(
-            item as Map<String, dynamic>,
-          ),
-        )
+        .map((item) => CameraDevice.fromJson(item as Map<String, dynamic>))
         .toList();
   }
 
-  List<CameraControl> listControls(
-    String device,
-  ) {
-    final pointer =
-        device.toNativeUtf8();
+  Future<List<CameraControl>> listControls(String device) async {
+    final raw = await _channel.invokeMethod<String>('listControls', {
+      'device': device,
+    });
 
-    try {
-      final raw =
-          _nativeListControls(pointer)
-              .toDartString();
-
-      final data =
-          jsonDecode(raw) as List<dynamic>;
-
-      return data
-          .map(
-            (item) =>
-                CameraControl.fromJson(
-              item as Map<String, dynamic>,
-            ),
-          )
-          .toList();
-    } finally {
-      malloc.free(pointer);
+    if (raw == null) {
+      return [];
     }
+
+    final data = jsonDecode(raw) as List<dynamic>;
+
+    return data
+        .map((item) => CameraControl.fromJson(item as Map<String, dynamic>))
+        .toList();
   }
 
-  bool setControl(
-    String device,
-    int id,
-    int value,
-  ) {
-    final pointer =
-        device.toNativeUtf8();
+  Future<List<CameraFormat>> listFormats(String device) async {
+    final raw = await _channel.invokeMethod<String>('listFormats', {
+      'device': device,
+    });
 
-    try {
-      return _nativeSetControl(
-            pointer,
-            id,
-            value,
-          ) ==
-          0;
-    } finally {
-      malloc.free(pointer);
+    if (raw == null) {
+      return [];
     }
+
+    final data = jsonDecode(raw) as List<dynamic>;
+
+    final formats = data
+        .map((item) => CameraFormat.fromJson(item as Map<String, dynamic>))
+        .where((format) => format.pixelFormat == 'MJPG')
+        .toList();
+
+    formats.sort((a, b) {
+      final pixelsA = a.width * a.height;
+
+      final pixelsB = b.width * b.height;
+
+      final resolution = pixelsB.compareTo(pixelsA);
+
+      if (resolution != 0) {
+        return resolution;
+      }
+
+      return b.fps.compareTo(a.fps);
+    });
+
+    return formats;
+  }
+
+  Future<bool> setControl(String device, int id, int value) async {
+    final result = await _channel.invokeMethod<bool>('setControl', {
+      'device': device,
+      'id': id,
+      'value': value,
+    });
+
+    return result ?? false;
   }
 }
