@@ -102,50 +102,161 @@ class _PreviewWorkspace extends StatelessWidget {
   );
 }
 
-class _LiveControls extends StatelessWidget {
+class _LiveControls extends StatefulWidget {
   const _LiveControls({required this.session, required this.appState});
 
   final CameraSession session;
   final AppState appState;
 
   @override
+  State<_LiveControls> createState() => _LiveControlsState();
+}
+
+class _LiveControlsState extends State<_LiveControls> {
+  bool cameraExpanded = true;
+  bool effectsExpanded = true;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      if (cameraExpanded)
+        Expanded(
+          child: _ControlGroupPanel(
+            title: 'Camera controls',
+            subtitle: 'Adjust the selected camera and see changes live.',
+            icon: Icons.tune_rounded,
+            expanded: true,
+            onToggle: () => setState(() => cameraExpanded = false),
+            onOpenPage: () => widget.appState.navigate(CamoraPage.camera),
+            child: ListView(
+              children: [
+                CameraControlList(session: widget.session, compact: true),
+              ],
+            ),
+          ),
+        )
+      else
+        _ControlGroupPanel(
+          title: 'Camera controls',
+          subtitle: 'Adjust the selected camera and see changes live.',
+          icon: Icons.tune_rounded,
+          expanded: false,
+          onToggle: () => setState(() => cameraExpanded = true),
+          onOpenPage: () => widget.appState.navigate(CamoraPage.camera),
+        ),
+      const SizedBox(height: 10),
+      if (effectsExpanded)
+        Expanded(
+          child: _ControlGroupPanel(
+            title: 'Effects',
+            subtitle: widget.session.nativeEffectsAvailable
+                ? 'Apply enhancements and see the result live.'
+                : 'Restart Camora to load the updated native runner.',
+            icon: Icons.auto_awesome_outlined,
+            expanded: true,
+            onToggle: () => setState(() => effectsExpanded = false),
+            onOpenPage: () => widget.appState.navigate(CamoraPage.effects),
+            child: ListView(
+              children: [
+                _StudioEffects(
+                  session: widget.session,
+                  appState: widget.appState,
+                ),
+              ],
+            ),
+          ),
+        )
+      else
+        _ControlGroupPanel(
+          title: 'Effects',
+          subtitle: 'Apply enhancements and see the result live.',
+          icon: Icons.auto_awesome_outlined,
+          expanded: false,
+          onToggle: () => setState(() => effectsExpanded = true),
+          onOpenPage: () => widget.appState.navigate(CamoraPage.effects),
+        ),
+      if (!cameraExpanded && !effectsExpanded) const Spacer(),
+    ],
+  );
+}
+
+class _ControlGroupPanel extends StatelessWidget {
+  const _ControlGroupPanel({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.expanded,
+    required this.onToggle,
+    required this.onOpenPage,
+    this.child,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final bool expanded;
+  final VoidCallback onToggle;
+  final VoidCallback onOpenPage;
+  final Widget? child;
+
+  @override
   Widget build(BuildContext context) => CamoraPanel(
-    padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+    padding: EdgeInsets.fromLTRB(14, expanded ? 12 : 8, 10, expanded ? 14 : 8),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            const Expanded(
-              child: Text(
-                'Camera controls',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-              ),
+        InkWell(
+          onTap: onToggle,
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Row(
+              children: [
+                Icon(icon, size: 19, color: CamoraColors.purpleLight),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  onPressed: onOpenPage,
+                  tooltip: 'Open $title page',
+                  visualDensity: VisualDensity.compact,
+                  iconSize: 18,
+                  icon: const Icon(Icons.open_in_new_rounded),
+                ),
+                Icon(
+                  expanded
+                      ? Icons.keyboard_arrow_up_rounded
+                      : Icons.keyboard_arrow_down_rounded,
+                  color: CamoraColors.muted,
+                ),
+                const SizedBox(width: 4),
+              ],
             ),
-            IconButton(
-              onPressed: () => appState.navigate(CamoraPage.camera),
-              tooltip: 'Open camera settings',
-              visualDensity: VisualDensity.compact,
-              icon: const Icon(Icons.chevron_right_rounded),
-            ),
-          ],
-        ),
-        const Text(
-          'Adjust the selected camera and see changes live.',
-          style: TextStyle(color: CamoraColors.muted, fontSize: 12),
-        ),
-        const SizedBox(height: 12),
-        Expanded(
-          child: ListView(
-            children: [
-              CameraControlList(session: session, compact: true),
-              const SizedBox(height: 16),
-              const Divider(height: 1),
-              const SizedBox(height: 10),
-              _StudioEffects(session: session, appState: appState),
-            ],
           ),
         ),
+        if (expanded) ...[
+          Padding(
+            padding: const EdgeInsets.only(left: 28, right: 6),
+            child: Text(
+              subtitle,
+              style: TextStyle(
+                color: subtitle.startsWith('Restart')
+                    ? Colors.orangeAccent
+                    : CamoraColors.muted,
+                fontSize: 11,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Expanded(child: child!),
+        ],
       ],
     ),
   );
@@ -172,32 +283,6 @@ class _StudioEffects extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            const Expanded(
-              child: Text(
-                'Effects',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-              ),
-            ),
-            IconButton(
-              onPressed: () => appState.navigate(CamoraPage.effects),
-              tooltip: 'Open effects settings',
-              visualDensity: VisualDensity.compact,
-              icon: const Icon(Icons.chevron_right_rounded),
-            ),
-          ],
-        ),
-        Text(
-          nativeAvailable
-              ? 'Apply enhancements and see the result live.'
-              : 'Restart Camora to load the updated native effects runner.',
-          style: TextStyle(
-            color: nativeAvailable ? CamoraColors.muted : Colors.orangeAccent,
-            fontSize: 12,
-          ),
-        ),
-        const SizedBox(height: 10),
         _StudioEffectRow(
           icon: Icons.light_mode_outlined,
           label: 'Low Light Enhancement',
@@ -216,7 +301,7 @@ class _StudioEffects extends StatelessWidget {
         ),
         if (enabled && nativeAvailable) ...[
           Padding(
-            padding: const EdgeInsets.only(left: 34, right: 2),
+            padding: const EdgeInsets.only(left: 27, right: 2),
             child: Row(
               children: [
                 const Expanded(
