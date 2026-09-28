@@ -156,41 +156,16 @@ class _EffectList extends StatelessWidget {
             child: _EffectCard(
               definition: effect,
               selected: appState.selectedEffect == effect.effect,
-              configured: appState.effectEnabled(effect.effect),
+              configured: appState.effects.isEnabled(effect.effect),
               available:
                   effect.available &&
                   session.nativeEffectsAvailable &&
                   (effect.effect != CameraEffect.backgroundImage ||
-                      appState.backgroundImagePath != null),
+                      appState.effects.backgroundImagePath != null),
               onSelected: () => appState.selectEffect(effect.effect),
               onChanged: (value) {
                 appState.selectEffect(effect.effect);
-                appState.setEffect(effect.effect, value);
-                if (effect.effect == CameraEffect.lowLightEnhancement) {
-                  session.configureLowLight(
-                    enabled: value,
-                    strength: appState.lowLightStrength,
-                  );
-                } else if (effect.effect == CameraEffect.backgroundBlur) {
-                  session.configureBackgroundBlur(
-                    enabled: value,
-                    strength: appState.backgroundBlurStrength,
-                  );
-                } else if (effect.effect == CameraEffect.backgroundRemoval) {
-                  session.configureBackgroundRemoval(
-                    enabled: value,
-                  );
-                } else if (effect.effect == CameraEffect.backgroundImage) {
-                  session.configureBackgroundImage(
-                    enabled: value,
-                    path: appState.backgroundImagePath,
-                  );
-                } else if (effect.effect == CameraEffect.autoFraming) {
-                  session.configureAutoFraming(
-                    enabled: value,
-                    sensitivity: appState.autoFramingSensitivity,
-                  );
-                }
+                appState.effects.setEnabled(effect.effect, value);
               },
             ),
           ),
@@ -293,7 +268,7 @@ class _EffectInspector extends StatelessWidget {
     final definition = EffectsPage.effects.firstWhere(
       (item) => item.effect == appState.selectedEffect,
     );
-    final configured = appState.effectEnabled(definition.effect);
+    final configured = appState.effects.isEnabled(definition.effect);
 
     return CamoraPanel(
       padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
@@ -314,39 +289,9 @@ class _EffectInspector extends StatelessWidget {
                     definition.available &&
                         session.nativeEffectsAvailable &&
                         (definition.effect != CameraEffect.backgroundImage ||
-                            appState.backgroundImagePath != null)
+                            appState.effects.backgroundImagePath != null)
                     ? (value) {
-                        appState.setEffect(definition.effect, value);
-                        if (definition.effect ==
-                            CameraEffect.lowLightEnhancement) {
-                          session.configureLowLight(
-                            enabled: value,
-                            strength: appState.lowLightStrength,
-                          );
-                        } else if (definition.effect ==
-                            CameraEffect.backgroundBlur) {
-                          session.configureBackgroundBlur(
-                            enabled: value,
-                            strength: appState.backgroundBlurStrength,
-                          );
-                        } else if (definition.effect ==
-                            CameraEffect.backgroundRemoval) {
-                          session.configureBackgroundRemoval(
-                            enabled: value,
-                          );
-                        } else if (definition.effect ==
-                            CameraEffect.backgroundImage) {
-                          session.configureBackgroundImage(
-                            enabled: value,
-                            path: appState.backgroundImagePath,
-                          );
-                        } else if (definition.effect ==
-                            CameraEffect.autoFraming) {
-                          session.configureAutoFraming(
-                            enabled: value,
-                            sensitivity: appState.autoFramingSensitivity,
-                          );
-                        }
+                        appState.effects.setEnabled(definition.effect, value);
                       }
                     : null,
               ),
@@ -367,7 +312,6 @@ class _EffectInspector extends StatelessWidget {
                       definition.effect == CameraEffect.backgroundImage
                   ? _EffectSettings(
                       effect: definition.effect,
-                      session: session,
                       appState: appState,
                     )
                   : const _SettingMessage(
@@ -411,29 +355,18 @@ class _EffectInspector extends StatelessWidget {
 }
 
 class _EffectSettings extends StatelessWidget {
-  const _EffectSettings({
-    required this.effect,
-    required this.session,
-    required this.appState,
-  });
+  const _EffectSettings({required this.effect, required this.appState});
 
   final CameraEffect effect;
-  final CameraSession session;
   final AppState appState;
 
   @override
   Widget build(BuildContext context) => switch (effect) {
     CameraEffect.backgroundBlur => _EffectSlider(
       label: 'Blur strength',
-      value: appState.backgroundBlurStrength,
+      value: appState.effects.backgroundBlurStrength,
       onChanged: (value) {
-        appState.setBackgroundBlurStrength(value);
-        if (appState.effectEnabled(CameraEffect.backgroundBlur)) {
-          session.configureBackgroundBlur(
-            enabled: true,
-            strength: value,
-          );
-        }
+        appState.effects.setBackgroundBlurStrength(value);
       },
     ),
     CameraEffect.backgroundRemoval => const _SettingMessage(
@@ -441,32 +374,19 @@ class _EffectSettings extends StatelessWidget {
       title: 'Transparent background',
       message: 'The processed output will use transparency where supported.',
     ),
-    CameraEffect.backgroundImage => _BackgroundImageSetting(
-      session: session,
-      appState: appState,
-    ),
+    CameraEffect.backgroundImage => _BackgroundImageSetting(appState: appState),
     CameraEffect.autoFraming => _EffectSlider(
       label: 'Tracking sensitivity',
-      value: appState.autoFramingSensitivity,
+      value: appState.effects.autoFramingSensitivity,
       onChanged: (value) {
-        appState.setAutoFramingSensitivity(value);
-        if (appState.effectEnabled(CameraEffect.autoFraming)) {
-          session.configureAutoFraming(
-            enabled: true,
-            sensitivity: value,
-          );
-        }
+        appState.effects.setAutoFramingSensitivity(value);
       },
     ),
     CameraEffect.lowLightEnhancement => _EffectSlider(
       label: 'Enhancement strength',
-      value: appState.lowLightStrength,
+      value: appState.effects.lowLightStrength,
       onChanged: (value) {
-        appState.setLowLightStrength(value);
-        session.configureLowLight(
-          enabled: appState.effectEnabled(CameraEffect.lowLightEnhancement),
-          strength: value,
-        );
+        appState.effects.setLowLightStrength(value);
       },
     ),
   };
@@ -502,12 +422,8 @@ class _EffectSlider extends StatelessWidget {
 }
 
 class _BackgroundImageSetting extends StatelessWidget {
-  const _BackgroundImageSetting({
-    required this.session,
-    required this.appState,
-  });
+  const _BackgroundImageSetting({required this.appState});
 
-  final CameraSession session;
   final AppState appState;
 
   Future<void> _chooseImage(BuildContext context) async {
@@ -527,9 +443,7 @@ class _BackgroundImageSetting extends StatelessWidget {
         );
         return;
       }
-      appState.setBackgroundImage(path);
-      appState.setEffect(CameraEffect.backgroundImage, true);
-      await session.configureBackgroundImage(enabled: true, path: path);
+      appState.effects.selectBackgroundImage(path);
     } catch (error) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(
@@ -540,7 +454,7 @@ class _BackgroundImageSetting extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final path = appState.backgroundImagePath;
+    final path = appState.effects.backgroundImagePath;
     final fileName = path?.split(Platform.pathSeparator).last;
 
     return Column(
@@ -592,9 +506,7 @@ class _BackgroundImageSetting extends StatelessWidget {
             if (path != null)
               TextButton.icon(
                 onPressed: () {
-                  appState.setBackgroundImage(null);
-                  appState.setEffect(CameraEffect.backgroundImage, false);
-                  session.configureBackgroundImage(enabled: false);
+                  appState.effects.clearBackgroundImage();
                 },
                 icon: const Icon(Icons.delete_outline_rounded),
                 label: const Text('Remove'),

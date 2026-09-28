@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../app/app_state.dart';
@@ -268,127 +269,256 @@ class _StudioEffects extends StatelessWidget {
   final CameraSession session;
   final AppState appState;
 
-  static const _unavailableEffects = [
-    ('Background Blur', Icons.blur_on_outlined),
-    ('Background Removal', Icons.content_cut_outlined),
-    ('Auto Framing', Icons.center_focus_strong_outlined),
-  ];
-
   @override
   Widget build(BuildContext context) {
-    final enabled = appState.effectEnabled(CameraEffect.lowLightEnhancement);
-    final nativeAvailable = session.nativeEffectsAvailable;
+    final effects = appState.effects;
+    final active = CameraEffect.values.where(effects.isEnabled).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _StudioEffectRow(
-          icon: Icons.light_mode_outlined,
-          label: 'Low Light Enhancement',
-          trailing: Switch(
-            value: enabled,
-            onChanged: nativeAvailable
-                ? (value) {
-                    appState.setEffect(CameraEffect.lowLightEnhancement, value);
-                    session.configureLowLight(
-                      enabled: value,
-                      strength: appState.lowLightStrength,
-                    );
-                  }
-                : null,
-          ),
+        const Text(
+          'Active Effects',
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
         ),
-        if (enabled && nativeAvailable) ...[
-          Padding(
-            padding: const EdgeInsets.only(left: 27, right: 2),
-            child: Row(
-              children: [
-                const Expanded(
-                  child: Text(
-                    'Strength',
-                    style: TextStyle(color: CamoraColors.muted, fontSize: 11),
+        const SizedBox(height: 8),
+        if (active.isEmpty)
+          const Text(
+            'No processing effects are active.',
+            style: TextStyle(color: CamoraColors.muted, fontSize: 11),
+          )
+        else
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: active
+                .map(
+                  (effect) => ActionChip(
+                    avatar: Icon(_effectIcon(effect), size: 15),
+                    label: Text(_activeLabel(effect, effects)),
+                    onPressed: () => appState.selectEffect(effect),
                   ),
-                ),
-                Text(
-                  '${(appState.lowLightStrength * 100).round()}%',
-                  style: const TextStyle(
-                    color: CamoraColors.muted,
-                    fontSize: 11,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Slider(
-            value: appState.lowLightStrength,
-            onChanged: (value) {
-              appState.setLowLightStrength(value);
-              session.configureLowLight(enabled: true, strength: value);
-            },
-          ),
-        ],
-        _StudioEffectRow(
-          icon: Icons.image_outlined,
-          label: appState.backgroundImagePath == null
-              ? 'Background Image'
-              : 'Background Image ready',
-          trailing: appState.backgroundImagePath == null
-              ? TextButton(
-                  onPressed: () {
-                    appState.selectEffect(CameraEffect.backgroundImage);
-                    appState.navigate(CamoraPage.effects);
-                  },
-                  child: const Text('Choose'),
                 )
-              : Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      tooltip: 'Change background image',
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () {
-                        appState.selectEffect(CameraEffect.backgroundImage);
-                        appState.navigate(CamoraPage.effects);
-                      },
-                      icon: const Icon(Icons.image_search_rounded, size: 18),
-                    ),
-                    Switch(
-                      value: appState.effectEnabled(
-                        CameraEffect.backgroundImage,
-                      ),
-                      onChanged: session.nativeEffectsAvailable
-                          ? (value) {
-                              appState.setEffect(
-                                CameraEffect.backgroundImage,
-                                value,
-                              );
-                              session.configureBackgroundImage(
-                                enabled: value,
-                                path: appState.backgroundImagePath,
-                              );
-                            }
-                          : null,
-                    ),
-                  ],
-                ),
-        ),
-        ..._unavailableEffects.map(
-          (effect) => _StudioEffectRow(
-            icon: effect.$2,
-            label: effect.$1,
-            trailing: const Tooltip(
-              message: 'Requires subject segmentation',
-              child: Icon(
-                Icons.lock_outline_rounded,
-                size: 16,
-                color: CamoraColors.muted,
+                .toList(),
+          ),
+        const SizedBox(height: 10),
+        const Divider(height: 1),
+        const SizedBox(height: 6),
+        ...CameraEffect.values.map(
+          (effect) => _StudioEffectControl(
+            row: _StudioEffectRow(
+              icon: _effectIcon(effect),
+              label: _effectName(effect),
+              onTap: () => appState.selectEffect(effect),
+              trailing: Switch(
+                value: effects.isEnabled(effect),
+                onChanged:
+                    session.nativeEffectsAvailable &&
+                        (effect != CameraEffect.backgroundImage ||
+                            effects.backgroundImagePath != null)
+                    ? (value) => effects.setEnabled(effect, value)
+                    : null,
               ),
             ),
+            additional: effect == CameraEffect.backgroundImage
+                ? _StudioBackgroundImageControl(appState: appState)
+                : effects.isEnabled(effect)
+                ? _QuickEffectControl(effect: effect, appState: appState)
+                : null,
           ),
         ),
       ],
     );
   }
+
+  String _activeLabel(CameraEffect effect, CameraEffectsState effects) {
+    final name = _effectName(effect);
+    return switch (effect) {
+      CameraEffect.backgroundBlur =>
+        '$name · ${(effects.backgroundBlurStrength * 100).round()}%',
+      CameraEffect.autoFraming =>
+        '$name · ${(effects.autoFramingSensitivity * 100).round()}%',
+      CameraEffect.lowLightEnhancement =>
+        '$name · ${(effects.lowLightStrength * 100).round()}%',
+      CameraEffect.backgroundImage =>
+        effects.backgroundImagePath!.split('/').last,
+      CameraEffect.backgroundRemoval => name,
+    };
+  }
+
+  String _effectName(CameraEffect effect) => switch (effect) {
+    CameraEffect.backgroundBlur => 'Background Blur',
+    CameraEffect.backgroundRemoval => 'Background Removal',
+    CameraEffect.backgroundImage => 'Background Image',
+    CameraEffect.autoFraming => 'Auto Framing',
+    CameraEffect.lowLightEnhancement => 'Low Light',
+  };
+
+  IconData _effectIcon(CameraEffect effect) => switch (effect) {
+    CameraEffect.backgroundBlur => Icons.blur_on_outlined,
+    CameraEffect.backgroundRemoval => Icons.content_cut_outlined,
+    CameraEffect.backgroundImage => Icons.image_outlined,
+    CameraEffect.autoFraming => Icons.center_focus_strong_outlined,
+    CameraEffect.lowLightEnhancement => Icons.light_mode_outlined,
+  };
+}
+
+class _StudioBackgroundImageControl extends StatelessWidget {
+  const _StudioBackgroundImageControl({required this.appState});
+
+  final AppState appState;
+
+  Future<void> _chooseImage(BuildContext context) async {
+    try {
+      final result = await FilePicker.pickFile(
+        type: FileType.custom,
+        allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
+        dialogTitle: 'Choose a background image',
+      );
+      if (!context.mounted || result == null) return;
+      final path = result.path;
+      if (path == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('The selected image has no local path.'),
+          ),
+        );
+        return;
+      }
+      appState.effects.selectBackgroundImage(path);
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not choose image: $error')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final path = appState.effects.backgroundImagePath;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (path != null)
+          Text(
+            path.split('/').last,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: CamoraColors.muted, fontSize: 11),
+          ),
+        Row(
+          children: [
+            TextButton.icon(
+              onPressed: () => _chooseImage(context),
+              icon: Icon(
+                path == null
+                    ? Icons.add_photo_alternate_outlined
+                    : Icons.image_search_outlined,
+                size: 16,
+              ),
+              label: Text(path == null ? 'Choose image' : 'Replace'),
+            ),
+            if (path != null)
+              TextButton(
+                onPressed: appState.effects.clearBackgroundImage,
+                child: const Text('Remove'),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _StudioEffectControl extends StatelessWidget {
+  const _StudioEffectControl({required this.row, this.additional});
+
+  final Widget row;
+  final Widget? additional;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 4),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        row,
+        if (additional != null)
+          Padding(
+            padding: const EdgeInsets.only(left: 27, right: 2, bottom: 2),
+            child: additional!,
+          ),
+      ],
+    ),
+  );
+}
+
+class _QuickEffectControl extends StatelessWidget {
+  const _QuickEffectControl({required this.effect, required this.appState});
+
+  final CameraEffect effect;
+  final AppState appState;
+
+  @override
+  Widget build(BuildContext context) {
+    final effects = appState.effects;
+    return switch (effect) {
+      CameraEffect.backgroundBlur => _QuickSlider(
+        label: 'Blur strength',
+        value: effects.backgroundBlurStrength,
+        onChanged: effects.setBackgroundBlurStrength,
+      ),
+      CameraEffect.autoFraming => _QuickSlider(
+        label: 'Tracking sensitivity',
+        value: effects.autoFramingSensitivity,
+        onChanged: effects.setAutoFramingSensitivity,
+      ),
+      CameraEffect.lowLightEnhancement => _QuickSlider(
+        label: 'Enhancement strength',
+        value: effects.lowLightStrength,
+        onChanged: effects.setLowLightStrength,
+      ),
+      CameraEffect.backgroundImage => Text(
+        effects.backgroundImagePath!.split('/').last,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(color: CamoraColors.muted, fontSize: 11),
+      ),
+      CameraEffect.backgroundRemoval => const Text(
+        'Subject isolation is active.',
+        style: TextStyle(color: CamoraColors.muted, fontSize: 11),
+      ),
+    };
+  }
+}
+
+class _QuickSlider extends StatelessWidget {
+  const _QuickSlider({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String label;
+  final double value;
+  final ValueChanged<double> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      Row(
+        children: [
+          Expanded(child: Text(label, style: const TextStyle(fontSize: 11))),
+          Text(
+            '${(value * 100).round()}%',
+            style: const TextStyle(color: CamoraColors.muted, fontSize: 11),
+          ),
+        ],
+      ),
+      Slider(value: value, onChanged: onChanged),
+    ],
+  );
 }
 
 class _StudioEffectRow extends StatelessWidget {
@@ -396,28 +526,33 @@ class _StudioEffectRow extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.trailing,
+    this.onTap,
   });
 
   final IconData icon;
   final String label;
   final Widget trailing;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) => ConstrainedBox(
     constraints: const BoxConstraints(minHeight: 38),
-    child: Row(
-      children: [
-        Icon(icon, size: 18, color: CamoraColors.purpleLight),
-        const SizedBox(width: 9),
-        Expanded(
-          child: Text(
-            label,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 12),
+    child: InkWell(
+      onTap: onTap,
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: CamoraColors.purpleLight),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              label,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12),
+            ),
           ),
-        ),
-        trailing,
-      ],
+          trailing,
+        ],
+      ),
     ),
   );
 }

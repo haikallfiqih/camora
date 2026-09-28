@@ -23,8 +23,8 @@ class _AppShellState extends State<AppShell> {
   @override
   void initState() {
     super.initState();
-    session = CameraSession();
     appState = AppState();
+    session = CameraSession(appState.effects);
     session.initialize();
   }
 

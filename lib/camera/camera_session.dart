@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import '../app/camera_effects_state.dart';
+
 import 'camera_control.dart';
 import 'camera_device.dart';
 import 'camera_format.dart';
@@ -7,10 +9,17 @@ import 'camora_video.dart';
 import 'v4l2_camera_repository.dart';
 
 class CameraSession extends ChangeNotifier {
-  CameraSession({V4l2CameraRepository? repository})
-    : _repository = repository ?? V4l2CameraRepository();
+  CameraSession(this._effects, {V4l2CameraRepository? repository})
+    : _repository = repository ?? V4l2CameraRepository() {
+    _effects.addListener(_effectsChanged);
+    _effectsRevision = 1;
+  }
 
   final V4l2CameraRepository _repository;
+  final CameraEffectsState _effects;
+  int _effectsRevision = 0;
+  int _appliedEffectsRevision = 0;
+  Future<void>? _effectsSync;
 
   List<CameraDevice> cameras = const [];
   List<CameraControl> controls = const [];
@@ -20,16 +29,7 @@ class CameraSession extends ChangeNotifier {
   int? textureId;
   bool isLoading = false;
   bool previewLoading = false;
-  bool lowLightEnabled = false;
   bool nativeEffectsAvailable = true;
-  double lowLightStrength = 0.5;
-  bool backgroundImageEnabled = false;
-  String? backgroundImagePath;
-  bool backgroundBlurEnabled = false;
-  double backgroundBlurStrength = 0.7;
-  bool backgroundRemovalEnabled = false;
-  bool autoFramingEnabled = false;
-  double autoFramingSensitivity = 0.5;
   String? error;
   String? previewError;
 
@@ -148,83 +148,44 @@ class CameraSession extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> configureLowLight({
-    required bool enabled,
-    required double strength,
-  }) async {
-    lowLightEnabled = enabled;
-    lowLightStrength = strength.clamp(0.0, 1.0);
-    await _pushEffects();
+  void _effectsChanged() {
+    _effectsRevision += 1;
+    _synchronizeEffects();
   }
 
-  Future<void> configureAutoFraming({
-    required bool enabled,
-    required double sensitivity,
-  }) async {
-    autoFramingEnabled = enabled;
-    autoFramingSensitivity =
-        sensitivity.clamp(0.0, 1.0);
+  Future<void> _synchronizeEffects() {
+    final activeSync = _effectsSync;
+    if (activeSync != null) return activeSync;
 
-    await _pushEffects();
+    final sync = _drainEffectChanges();
+    _effectsSync = sync;
+    sync.whenComplete(() {
+      _effectsSync = null;
+      if (_appliedEffectsRevision < _effectsRevision) _synchronizeEffects();
+    });
+    return sync;
   }
 
-  Future<void> configureBackgroundRemoval({
-    required bool enabled,
-  }) async {
-    backgroundRemovalEnabled = enabled;
-
-    if (enabled) {
-      backgroundBlurEnabled = false;
-      backgroundImageEnabled = false;
+  Future<void> _drainEffectChanges() async {
+    while (_appliedEffectsRevision < _effectsRevision) {
+      final revision = _effectsRevision;
+      final effects = _effects.snapshot;
+      final wasAvailable = nativeEffectsAvailable;
+      nativeEffectsAvailable = await CamoraVideo.setEffects(
+        lowLightEnabled: effects.lowLightEnabled,
+        lowLightStrength: effects.lowLightStrength,
+        backgroundImageEnabled: effects.backgroundMode == BackgroundMode.image,
+        backgroundImagePath: effects.backgroundImagePath,
+        backgroundBlurEnabled: effects.backgroundMode == BackgroundMode.blur,
+        backgroundBlurStrength: effects.backgroundBlurStrength,
+        backgroundRemovalEnabled:
+            effects.backgroundMode == BackgroundMode.removal,
+        autoFramingEnabled: effects.autoFramingEnabled,
+        autoFramingSensitivity: effects.autoFramingSensitivity,
+      );
+      _appliedEffectsRevision = revision;
+      if (nativeEffectsAvailable != wasAvailable) notifyListeners();
     }
-
-    await _pushEffects();
-  }
-
-  Future<void> configureBackgroundBlur({
-    required bool enabled,
-    required double strength,
-  }) async {
-    backgroundBlurEnabled = enabled;
-    backgroundBlurStrength = strength.clamp(0.0, 1.0);
-
-    if (enabled) {
-      backgroundRemovalEnabled = false;
-      backgroundImageEnabled = false;
-    }
-
-    await _pushEffects();
-  }
-
-  Future<void> configureBackgroundImage({
-    required bool enabled,
-    String? path,
-  }) async {
-    backgroundImageEnabled = enabled && path != null;
-    backgroundImagePath = path;
-
-    if (backgroundImageEnabled) {
-      backgroundBlurEnabled = false;
-      backgroundRemovalEnabled = false;
-    }
-
-    await _pushEffects();
-  }
-
-  Future<void> _pushEffects() async {
-    final wasAvailable = nativeEffectsAvailable;
-    nativeEffectsAvailable = await CamoraVideo.setEffects(
-      lowLightEnabled: lowLightEnabled,
-      lowLightStrength: lowLightStrength,
-      backgroundImageEnabled: backgroundImageEnabled,
-      backgroundImagePath: backgroundImagePath,
-      backgroundBlurEnabled: backgroundBlurEnabled,
-      backgroundBlurStrength: backgroundBlurStrength,
-      backgroundRemovalEnabled: backgroundRemovalEnabled,
-      autoFramingEnabled: autoFramingEnabled,
-      autoFramingSensitivity: autoFramingSensitivity,
-    );
-    if (nativeEffectsAvailable != wasAvailable) notifyListeners();
   }
 
   Future<void> startPreview() async {
@@ -236,7 +197,7 @@ class CameraSession extends ChangeNotifier {
     previewError = null;
     notifyListeners();
     try {
-      await _pushEffects();
+      await _synchronizeEffects();
       textureId = await CamoraVideo.start(
         device: camera.path,
         width: format.width,
@@ -261,6 +222,7 @@ class CameraSession extends ChangeNotifier {
 
   @override
   void dispose() {
+    _effects.removeListener(_effectsChanged);
     if (isPreviewing) {
       CamoraVideo.stop();
     }
