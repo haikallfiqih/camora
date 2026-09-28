@@ -49,10 +49,15 @@ class EffectsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Column(
     children: [
-      const PageHeading(
+      PageHeading(
         title: 'Effects',
         subtitle: 'Prepare enhancements for the Camora processing pipeline.',
-        trailing: StatusPill('Low light available', available: true),
+        trailing: StatusPill(
+          session.nativeEffectsAvailable
+              ? 'Low light available'
+              : 'Restart required',
+          available: session.nativeEffectsAvailable,
+        ),
       ),
       const SizedBox(height: 14),
       Expanded(
@@ -145,6 +150,7 @@ class _EffectList extends StatelessWidget {
               definition: effect,
               selected: appState.selectedEffect == effect.effect,
               configured: appState.effectEnabled(effect.effect),
+              available: effect.available && session.nativeEffectsAvailable,
               onSelected: () => appState.selectEffect(effect.effect),
               onChanged: (value) {
                 appState.selectEffect(effect.effect);
@@ -168,6 +174,7 @@ class _EffectCard extends StatelessWidget {
     required this.definition,
     required this.selected,
     required this.configured,
+    required this.available,
     required this.onSelected,
     required this.onChanged,
   });
@@ -175,6 +182,7 @@ class _EffectCard extends StatelessWidget {
   final EffectDefinition definition;
   final bool selected;
   final bool configured;
+  final bool available;
   final VoidCallback onSelected;
   final ValueChanged<bool> onChanged;
 
@@ -229,7 +237,7 @@ class _EffectCard extends StatelessWidget {
               label: 'Configure ${definition.title}',
               child: Switch(
                 value: configured,
-                onChanged: definition.available ? onChanged : null,
+                onChanged: available ? onChanged : null,
               ),
             ),
             const SizedBox(width: 2),
@@ -272,7 +280,8 @@ class _EffectInspector extends StatelessWidget {
               ),
               Switch(
                 value: configured,
-                onChanged: definition.available
+                onChanged:
+                    definition.available && session.nativeEffectsAvailable
                     ? (value) {
                         appState.setEffect(definition.effect, value);
                         session.configureLowLight(
@@ -292,7 +301,7 @@ class _EffectInspector extends StatelessWidget {
           const SizedBox(height: 16),
           const Divider(height: 1),
           const SizedBox(height: 18),
-          if (definition.available)
+          if (definition.available && session.nativeEffectsAvailable)
             _EffectSettings(
               effect: definition.effect,
               session: session,
@@ -310,18 +319,18 @@ class _EffectInspector extends StatelessWidget {
           Row(
             children: [
               Icon(
-                definition.available
+                definition.available && session.nativeEffectsAvailable
                     ? Icons.bolt_rounded
                     : Icons.schedule_rounded,
                 size: 17,
-                color: definition.available
+                color: definition.available && session.nativeEffectsAvailable
                     ? CamoraColors.success
                     : CamoraColors.muted,
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  definition.available
+                  definition.available && session.nativeEffectsAvailable
                       ? 'Applied live to the native camera preview'
                       : 'Processing backend required',
                   style: const TextStyle(

@@ -23,14 +23,19 @@ class CamoraVideo {
     return textureId;
   }
 
-  static Future<void> setEffects({
+  static Future<bool> setEffects({
     required bool lowLightEnabled,
     required double lowLightStrength,
   }) async {
-    await _channel.invokeMethod<void>('setEffects', {
-      'lowLightEnabled': lowLightEnabled,
-      'lowLightStrength': (lowLightStrength * 100).round(),
-    });
+    try {
+      await _channel.invokeMethod<void>('setEffects', {
+        'lowLightEnabled': lowLightEnabled,
+        'lowLightStrength': (lowLightStrength * 100).round(),
+      });
+      return true;
+    } on MissingPluginException {
+      return false;
+    }
   }
 
   static Future<void> stop() async {

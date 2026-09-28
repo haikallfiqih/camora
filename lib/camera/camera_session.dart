@@ -21,6 +21,7 @@ class CameraSession extends ChangeNotifier {
   bool isLoading = false;
   bool previewLoading = false;
   bool lowLightEnabled = false;
+  bool nativeEffectsAvailable = true;
   double lowLightStrength = 0.5;
   String? error;
   String? previewError;
@@ -147,10 +148,11 @@ class CameraSession extends ChangeNotifier {
     lowLightEnabled = enabled;
     lowLightStrength = strength.clamp(0.0, 1.0);
     notifyListeners();
-    await CamoraVideo.setEffects(
+    nativeEffectsAvailable = await CamoraVideo.setEffects(
       lowLightEnabled: lowLightEnabled,
       lowLightStrength: lowLightStrength,
     );
+    notifyListeners();
   }
 
   Future<void> startPreview() async {
@@ -162,7 +164,7 @@ class CameraSession extends ChangeNotifier {
     previewError = null;
     notifyListeners();
     try {
-      await CamoraVideo.setEffects(
+      nativeEffectsAvailable = await CamoraVideo.setEffects(
         lowLightEnabled: lowLightEnabled,
         lowLightStrength: lowLightStrength,
       );
