@@ -39,7 +39,7 @@ public:
     );
 
     bool backgroundReplacementAvailable() const {
-        return segmenter_.available();
+        return segmenter_.configuredForFrame(width_, height_);
     }
 
     bool copyLatestFrame(

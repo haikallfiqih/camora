@@ -1,177 +1,113 @@
 #include "background_segmenter.h"
 
+#include "third_party/onnxruntime/onnxruntime_cxx_api.h"
+
 #include <algorithm>
+#include <array>
 #include <cmath>
-#include <cstring>
-#include <dlfcn.h>
 #include <iostream>
+#include <numeric>
 
 namespace {
-struct TfLiteModel;
-struct TfLiteInterpreterOptions;
-struct TfLiteInterpreter;
-struct TfLiteTensor;
+constexpr int kMaximumMattingDimension = 512;
 
-enum TfLiteStatus { kTfLiteOk = 0 };
-enum TfLiteType { kTfLiteNoType = 0, kTfLiteFloat32 = 1 };
+int alignDimension(float dimension) {
+    return std::max(32, static_cast<int>(std::round(dimension / 32.0f)) * 32);
+}
 
-template <typename T>
-bool loadSymbol(void* library, const char* name, T& target) {
-    target = reinterpret_cast<T>(dlsym(library, name));
-    if (!target) {
-        std::cerr << "TensorFlow Lite symbol unavailable: " << name << std::endl;
-        return false;
-    }
-    return true;
+size_t elementCount(const std::vector<int64_t>& shape) {
+    return std::accumulate(
+        shape.begin(), shape.end(), size_t{1},
+        [](size_t count, int64_t dimension) {
+            return count * static_cast<size_t>(dimension);
+        });
 }
 }  // namespace
 
-struct BackgroundSegmenter::Api {
-    TfLiteModel* (*modelCreateFromFile)(const char*);
-    void (*modelDelete)(TfLiteModel*);
-    TfLiteInterpreterOptions* (*optionsCreate)();
-    void (*optionsDelete)(TfLiteInterpreterOptions*);
-    void (*optionsSetNumThreads)(TfLiteInterpreterOptions*, int32_t);
-    TfLiteInterpreter* (*interpreterCreate)(
-        const TfLiteModel*,
-        const TfLiteInterpreterOptions*
-    );
-    void (*interpreterDelete)(TfLiteInterpreter*);
-    TfLiteStatus (*allocateTensors)(TfLiteInterpreter*);
-    TfLiteStatus (*invoke)(TfLiteInterpreter*);
-    TfLiteTensor* (*getInputTensor)(TfLiteInterpreter*, int32_t);
-    const TfLiteTensor* (*getOutputTensor)(const TfLiteInterpreter*, int32_t);
-    TfLiteType (*tensorType)(const TfLiteTensor*);
-    int32_t (*tensorNumDims)(const TfLiteTensor*);
-    int32_t (*tensorDim)(const TfLiteTensor*, int32_t);
-    size_t (*tensorByteSize)(const TfLiteTensor*);
-    TfLiteStatus (*tensorCopyFromBuffer)(TfLiteTensor*, const void*, size_t);
-    TfLiteStatus (*tensorCopyToBuffer)(const TfLiteTensor*, void*, size_t);
+struct BackgroundSegmenter::Impl {
+    Impl()
+        : environment(ORT_LOGGING_LEVEL_FATAL, "CamoraRVM"),
+          memory(Ort::MemoryInfo::CreateCpu(
+              OrtArenaAllocator, OrtMemTypeDefault)) {}
+
+    Ort::Env environment;
+    Ort::SessionOptions options;
+    std::unique_ptr<Ort::Session> session;
+    Ort::MemoryInfo memory;
+    std::array<std::vector<float>, 4> recurrentData;
+    std::array<std::vector<int64_t>, 4> recurrentShapes;
 };
 
 BackgroundSegmenter::BackgroundSegmenter() = default;
-
-BackgroundSegmenter::~BackgroundSegmenter() {
-    reset();
-}
+BackgroundSegmenter::~BackgroundSegmenter() = default;
 
 void BackgroundSegmenter::reset() {
-    if (api_) {
-        if (interpreter_) {
-            api_->interpreterDelete(
-                reinterpret_cast<TfLiteInterpreter*>(interpreter_)
-            );
-        }
-        if (options_) {
-            api_->optionsDelete(
-                reinterpret_cast<TfLiteInterpreterOptions*>(options_)
-            );
-        }
-        if (model_) {
-            api_->modelDelete(reinterpret_cast<TfLiteModel*>(model_));
-        }
-    }
-    delete api_;
-    api_ = nullptr;
-    interpreter_ = nullptr;
-    options_ = nullptr;
-    model_ = nullptr;
-    if (library_) {
-        dlclose(library_);
-        library_ = nullptr;
-    }
+    impl_.reset();
     inputBuffer_.clear();
-    inputWidth_ = inputHeight_ = outputWidth_ = outputHeight_ = 0;
-    outputChannels_ = 0;
+    inputWidth_ = 0;
+    inputHeight_ = 0;
+    frameWidth_ = 0;
+    frameHeight_ = 0;
 }
 
-bool BackgroundSegmenter::initialize(const std::string& modelPath) {
+bool BackgroundSegmenter::available() const {
+    return impl_ && impl_->session;
+}
+
+bool BackgroundSegmenter::configuredForFrame(int width, int height) const {
+    return available() && frameWidth_ == width && frameHeight_ == height;
+}
+
+void BackgroundSegmenter::resetTemporalState() {
+    if (!impl_) return;
+    for (size_t index = 0; index < impl_->recurrentData.size(); ++index) {
+        impl_->recurrentData[index] = {0.0f};
+        impl_->recurrentShapes[index] = {1, 1, 1, 1};
+    }
+}
+
+bool BackgroundSegmenter::initialize(
+    const std::string& modelPath,
+    int frameWidth,
+    int frameHeight
+) {
     reset();
-    library_ = dlopen("libtensorflow-lite.so.2", RTLD_NOW | RTLD_LOCAL);
-    if (!library_) {
-        library_ = dlopen("libtensorflow-lite.so.2.14.1", RTLD_NOW | RTLD_LOCAL);
-    }
-    if (!library_) {
-        library_ = dlopen("libtensorflow-lite.so", RTLD_NOW | RTLD_LOCAL);
-    }
-    if (!library_) {
-        std::cerr << "TensorFlow Lite runtime unavailable: " << dlerror()
-                  << std::endl;
-        return false;
+    if (frameWidth <= 0 || frameHeight <= 0) return false;
+    frameWidth_ = frameWidth;
+    frameHeight_ = frameHeight;
+
+    if (frameWidth >= frameHeight) {
+        inputWidth_ = kMaximumMattingDimension;
+        inputHeight_ = alignDimension(
+            kMaximumMattingDimension * frameHeight /
+            static_cast<float>(frameWidth));
+    } else {
+        inputHeight_ = kMaximumMattingDimension;
+        inputWidth_ = alignDimension(
+            kMaximumMattingDimension * frameWidth /
+            static_cast<float>(frameHeight));
     }
 
-    api_ = new Api{};
-    bool loaded = true;
-#define LOAD(field, symbol) loaded = loadSymbol(library_, symbol, api_->field) && loaded
-    LOAD(modelCreateFromFile, "TfLiteModelCreateFromFile");
-    LOAD(modelDelete, "TfLiteModelDelete");
-    LOAD(optionsCreate, "TfLiteInterpreterOptionsCreate");
-    LOAD(optionsDelete, "TfLiteInterpreterOptionsDelete");
-    LOAD(optionsSetNumThreads, "TfLiteInterpreterOptionsSetNumThreads");
-    LOAD(interpreterCreate, "TfLiteInterpreterCreate");
-    LOAD(interpreterDelete, "TfLiteInterpreterDelete");
-    LOAD(allocateTensors, "TfLiteInterpreterAllocateTensors");
-    LOAD(invoke, "TfLiteInterpreterInvoke");
-    LOAD(getInputTensor, "TfLiteInterpreterGetInputTensor");
-    LOAD(getOutputTensor, "TfLiteInterpreterGetOutputTensor");
-    LOAD(tensorType, "TfLiteTensorType");
-    LOAD(tensorNumDims, "TfLiteTensorNumDims");
-    LOAD(tensorDim, "TfLiteTensorDim");
-    LOAD(tensorByteSize, "TfLiteTensorByteSize");
-    LOAD(tensorCopyFromBuffer, "TfLiteTensorCopyFromBuffer");
-    LOAD(tensorCopyToBuffer, "TfLiteTensorCopyToBuffer");
-#undef LOAD
-    if (!loaded) {
+    try {
+        impl_ = std::make_unique<Impl>();
+        impl_->options.SetIntraOpNumThreads(2);
+        impl_->options.SetInterOpNumThreads(1);
+        impl_->options.SetGraphOptimizationLevel(
+            GraphOptimizationLevel::ORT_ENABLE_ALL);
+        impl_->session = std::make_unique<Ort::Session>(
+            impl_->environment, modelPath.c_str(), impl_->options);
+        for (size_t index = 0; index < impl_->recurrentData.size(); ++index) {
+            impl_->recurrentData[index] = {0.0f};
+            impl_->recurrentShapes[index] = {1, 1, 1, 1};
+        }
+        inputBuffer_.resize(
+            static_cast<size_t>(3 * inputWidth_ * inputHeight_));
+        return true;
+    } catch (const Ort::Exception& error) {
+        std::cerr << "Could not initialize RVM: " << error.what() << std::endl;
         reset();
         return false;
     }
-
-    model_ = api_->modelCreateFromFile(modelPath.c_str());
-    options_ = api_->optionsCreate();
-    if (!model_ || !options_) {
-        reset();
-        return false;
-    }
-    api_->optionsSetNumThreads(
-        reinterpret_cast<TfLiteInterpreterOptions*>(options_), 2
-    );
-    interpreter_ = api_->interpreterCreate(
-        reinterpret_cast<const TfLiteModel*>(model_),
-        reinterpret_cast<const TfLiteInterpreterOptions*>(options_)
-    );
-    if (!interpreter_ || api_->allocateTensors(
-            reinterpret_cast<TfLiteInterpreter*>(interpreter_)
-        ) != kTfLiteOk) {
-        reset();
-        return false;
-    }
-
-    TfLiteTensor* input = api_->getInputTensor(
-        reinterpret_cast<TfLiteInterpreter*>(interpreter_), 0
-    );
-    const TfLiteTensor* output = api_->getOutputTensor(
-        reinterpret_cast<const TfLiteInterpreter*>(interpreter_), 0
-    );
-    if (!input || !output || api_->tensorType(input) != kTfLiteFloat32 ||
-        api_->tensorType(output) != kTfLiteFloat32 ||
-        api_->tensorNumDims(input) != 4 || api_->tensorNumDims(output) != 4) {
-        std::cerr << "Unsupported selfie segmentation model tensors" << std::endl;
-        reset();
-        return false;
-    }
-
-    inputHeight_ = api_->tensorDim(input, 1);
-    inputWidth_ = api_->tensorDim(input, 2);
-    outputHeight_ = api_->tensorDim(output, 1);
-    outputWidth_ = api_->tensorDim(output, 2);
-    outputChannels_ = api_->tensorDim(output, 3);
-    if (inputWidth_ <= 0 || inputHeight_ <= 0 ||
-        outputWidth_ <= 0 || outputHeight_ <= 0 || outputChannels_ <= 0) {
-        reset();
-        return false;
-    }
-    inputBuffer_.resize(inputWidth_ * inputHeight_ * 3);
-    return true;
 }
 
 bool BackgroundSegmenter::segment(
@@ -180,71 +116,64 @@ bool BackgroundSegmenter::segment(
     int height,
     std::vector<float>& mask
 ) {
-    if (!available() || !rgba || width <= 0 || height <= 0) return false;
-
-    for (int y = 0; y < inputHeight_; ++y) {
-        const int sourceY = std::min(height - 1, y * height / inputHeight_);
-        for (int x = 0; x < inputWidth_; ++x) {
-            const int sourceX = std::min(width - 1, x * width / inputWidth_);
-            const uint8_t* pixel = rgba + (sourceY * width + sourceX) * 4;
-            const size_t index = static_cast<size_t>(y * inputWidth_ + x) * 3;
-            inputBuffer_[index] = pixel[0] / 255.0f;
-            inputBuffer_[index + 1] = pixel[1] / 255.0f;
-            inputBuffer_[index + 2] = pixel[2] / 255.0f;
-        }
-    }
-
-    TfLiteTensor* input = api_->getInputTensor(
-        reinterpret_cast<TfLiteInterpreter*>(interpreter_), 0
-    );
-    if (api_->tensorCopyFromBuffer(
-            input, inputBuffer_.data(), inputBuffer_.size() * sizeof(float)
-        ) != kTfLiteOk ||
-        api_->invoke(reinterpret_cast<TfLiteInterpreter*>(interpreter_)) !=
-            kTfLiteOk) {
+    if (!available() || !rgba || width != inputWidth_ ||
+        height != inputHeight_) {
         return false;
     }
 
-    const TfLiteTensor* output = api_->getOutputTensor(
-        reinterpret_cast<const TfLiteInterpreter*>(interpreter_), 0
-    );
-    const size_t count = static_cast<size_t>(outputWidth_ * outputHeight_);
-    const size_t outputCount = count * static_cast<size_t>(outputChannels_);
-    std::vector<float> outputValues(outputCount);
-    if (api_->tensorByteSize(output) != outputCount * sizeof(float) ||
-        api_->tensorCopyToBuffer(
-            output, outputValues.data(), outputCount * sizeof(float)
-        ) != kTfLiteOk) {
+    const size_t planeSize = static_cast<size_t>(width * height);
+    for (size_t pixel = 0; pixel < planeSize; ++pixel) {
+        inputBuffer_[pixel] = rgba[pixel * 4] / 255.0f;
+        inputBuffer_[planeSize + pixel] = rgba[pixel * 4 + 1] / 255.0f;
+        inputBuffer_[planeSize * 2 + pixel] = rgba[pixel * 4 + 2] / 255.0f;
+    }
+
+    try {
+        const std::array<int64_t, 4> sourceShape = {1, 3, height, width};
+        std::vector<Ort::Value> inputs;
+        inputs.reserve(6);
+        inputs.emplace_back(Ort::Value::CreateTensor<float>(
+            impl_->memory, inputBuffer_.data(), inputBuffer_.size(),
+            sourceShape.data(), sourceShape.size()));
+        for (size_t index = 0; index < impl_->recurrentData.size(); ++index) {
+            inputs.emplace_back(Ort::Value::CreateTensor<float>(
+                impl_->memory,
+                impl_->recurrentData[index].data(),
+                impl_->recurrentData[index].size(),
+                impl_->recurrentShapes[index].data(),
+                impl_->recurrentShapes[index].size()));
+        }
+        float downsampleRatio = 1.0f;
+        const std::array<int64_t, 1> ratioShape = {1};
+        inputs.emplace_back(Ort::Value::CreateTensor<float>(
+            impl_->memory, &downsampleRatio, 1,
+            ratioShape.data(), ratioShape.size()));
+
+        constexpr std::array<const char*, 6> inputNames = {
+            "src", "r1i", "r2i", "r3i", "r4i", "downsample_ratio"};
+        constexpr std::array<const char*, 5> outputNames = {
+            "pha", "r1o", "r2o", "r3o", "r4o"};
+        std::vector<Ort::Value> outputs = impl_->session->Run(
+            Ort::RunOptions{nullptr}, inputNames.data(), inputs.data(),
+            inputs.size(), outputNames.data(), outputNames.size());
+
+        const auto alphaShape = outputs[0]
+            .GetTensorTypeAndShapeInfo().GetShape();
+        const size_t alphaCount = elementCount(alphaShape);
+        if (alphaCount != planeSize) return false;
+        const float* alpha = outputs[0].GetTensorData<float>();
+        mask.assign(alpha, alpha + alphaCount);
+
+        for (size_t index = 0; index < impl_->recurrentData.size(); ++index) {
+            impl_->recurrentShapes[index] = outputs[index + 1]
+                .GetTensorTypeAndShapeInfo().GetShape();
+            const size_t count = elementCount(impl_->recurrentShapes[index]);
+            const float* values = outputs[index + 1].GetTensorData<float>();
+            impl_->recurrentData[index].assign(values, values + count);
+        }
+        return true;
+    } catch (const Ort::Exception& error) {
+        std::cerr << "RVM inference failed: " << error.what() << std::endl;
         return false;
     }
-
-    std::vector<float> freshMask(count);
-    if (outputChannels_ == 1) {
-        freshMask = std::move(outputValues);
-    } else {
-        constexpr int personClass = 15;
-        if (outputChannels_ <= personClass) return false;
-        for (size_t pixel = 0; pixel < count; ++pixel) {
-            const float* classes = outputValues.data() + pixel * outputChannels_;
-            const float maximum = *std::max_element(
-                classes, classes + outputChannels_);
-            float denominator = 0.0f;
-            for (int channel = 0; channel < outputChannels_; ++channel) {
-                denominator += std::exp(classes[channel] - maximum);
-            }
-            freshMask[pixel] = std::exp(classes[personClass] - maximum) /
-                std::max(denominator, 0.000001f);
-        }
-    }
-
-    if (mask.size() != count) {
-        mask = std::move(freshMask);
-    } else {
-        for (size_t i = 0; i < count; ++i) {
-            // Keep just enough history to calm model shimmer without leaving a
-            // visible silhouette behind a moving subject.
-            mask[i] = 0.88f * freshMask[i] + 0.12f * mask[i];
-        }
-    }
-    return true;
 }

@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.13)
 
 find_package(PkgConfig REQUIRED)
+find_file(
+  ONNXRUNTIME_LIBRARY
+  NAMES libonnxruntime.so libonnxruntime.so.1.23 libonnxruntime.so.1.23.2
+  PATHS /usr/lib /usr/lib/x86_64-linux-gnu
+  REQUIRED
+)
 
 pkg_check_modules(
   GST REQUIRED
@@ -49,6 +55,7 @@ target_link_libraries(
   flutter
   PkgConfig::GTK
   PkgConfig::GST
+  ${ONNXRUNTIME_LIBRARY}
   ${CMAKE_DL_LIBS}
 )
 

@@ -1,9 +1,14 @@
-# Person segmentation model
+# Subject matting model
 
-`deeplabv3_person.tflite` is the TensorFlow Lite DeepLabV3 model published by
-TensorFlow Hub at:
+`rvm_mobilenetv3_fp32.onnx` is the official MobileNetV3 Robust Video Matting
+model published by the RVM project:
 
-https://tfhub.dev/tensorflow/lite-model/deeplabv3/1/default/1
+https://github.com/PeterL1n/RobustVideoMatting
 
-The model is distributed under the Apache License 2.0. Camora uses class 15
-(person) from its 21-class output to build the live background-compositing mask.
+RVM predicts a soft foreground alpha matte and carries recurrent state between
+video frames. Camora runs it asynchronously through ONNX Runtime at an
+aspect-correct working resolution.
+
+The model and upstream project are distributed under the GNU General Public
+License v3.0. The vendored ONNX Runtime headers are distributed under the MIT
+License by Microsoft.

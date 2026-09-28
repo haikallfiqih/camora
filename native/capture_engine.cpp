@@ -8,82 +8,6 @@
 #include <cstring>
 #include <iostream>
 
-namespace {
-std::vector<uint8_t> buildForegroundSupport(
-    const std::vector<float>& mask,
-    int width,
-    int height
-) {
-    const size_t pixelCount = static_cast<size_t>(width * height);
-    std::vector<uint8_t> visited(pixelCount, 0);
-    std::vector<uint8_t> support(pixelCount, 0);
-    std::vector<int> stack;
-    std::vector<int> component;
-    std::vector<int> largestComponent;
-    const size_t minimumArea = std::max<size_t>(48, pixelCount / 850);
-
-    for (size_t start = 0; start < pixelCount; ++start) {
-        if (visited[start] || mask[start] < 0.40f) continue;
-        stack.clear();
-        component.clear();
-        stack.push_back(static_cast<int>(start));
-        visited[start] = 1;
-
-        while (!stack.empty()) {
-            const int index = stack.back();
-            stack.pop_back();
-            component.push_back(index);
-            const int x = index % width;
-            const int y = index / width;
-            for (int offsetY = -1; offsetY <= 1; ++offsetY) {
-                const int neighborY = y + offsetY;
-                if (neighborY < 0 || neighborY >= height) continue;
-                for (int offsetX = -1; offsetX <= 1; ++offsetX) {
-                    const int neighborX = x + offsetX;
-                    if ((offsetX == 0 && offsetY == 0) || neighborX < 0 ||
-                        neighborX >= width) {
-                        continue;
-                    }
-                    const int neighbor = neighborY * width + neighborX;
-                    if (!visited[neighbor] && mask[neighbor] >= 0.40f) {
-                        visited[neighbor] = 1;
-                        stack.push_back(neighbor);
-                    }
-                }
-            }
-        }
-
-        if (component.size() > largestComponent.size()) {
-            largestComponent = component;
-        }
-        if (component.size() >= minimumArea) {
-            for (const int index : component) support[index] = 1;
-        }
-    }
-
-    // Always retain the main subject, then expand by one model pixel so the
-    // soft transition can preserve fine hair without admitting distant noise.
-    for (const int index : largestComponent) support[index] = 1;
-    std::vector<uint8_t> expanded = support;
-    for (int y = 0; y < height; ++y) {
-        for (int x = 0; x < width; ++x) {
-            if (!support[y * width + x]) continue;
-            for (int offsetY = -1; offsetY <= 1; ++offsetY) {
-                const int neighborY = y + offsetY;
-                if (neighborY < 0 || neighborY >= height) continue;
-                for (int offsetX = -1; offsetX <= 1; ++offsetX) {
-                    const int neighborX = x + offsetX;
-                    if (neighborX >= 0 && neighborX < width) {
-                        expanded[neighborY * width + neighborX] = 1;
-                    }
-                }
-            }
-        }
-    }
-    return expanded;
-}
-}  // namespace
-
 CaptureEngine::CaptureEngine() {
     gst_init(nullptr, nullptr);
 }
@@ -177,7 +101,7 @@ void CaptureEngine::setLowLightEnhancement(
 bool CaptureEngine::configureSegmentationModel(
     const std::string& modelPath
 ) {
-    return segmenter_.initialize(modelPath);
+    return segmenter_.initialize(modelPath, width_, height_);
 }
 
 void CaptureEngine::setBackgroundReplacement(
@@ -191,6 +115,7 @@ void CaptureEngine::setBackgroundReplacement(
     backgroundWidth_ = width;
     backgroundHeight_ = height;
     backgroundEnabled_ = enabled && !backgroundPixels_.empty();
+    if (!backgroundEnabled_) segmenter_.resetTemporalState();
 }
 
 void CaptureEngine::submitSegmentationFrame(const uint8_t* rgba) {
@@ -248,8 +173,6 @@ void CaptureEngine::segmentationLoop() {
 
         const int maskWidth = segmenter_.maskWidth();
         const int maskHeight = segmenter_.maskHeight();
-        const std::vector<uint8_t> foregroundSupport = buildForegroundSupport(
-            subjectMask_, maskWidth, maskHeight);
         std::vector<uint8_t> alpha(static_cast<size_t>(width_ * height_));
         for (int y = 0; y < height_; ++y) {
             const float maskY = height_ > 1
@@ -272,16 +195,8 @@ void CaptureEngine::segmentationLoop() {
                         (1.0f - fx) +
                     subjectMask_[y1 * maskWidth + x1] * fx;
                 const float probability = top * (1.0f - fy) + bottom * fy;
-                const int nearestX = std::clamp(
-                    static_cast<int>(maskX + 0.5f), 0, maskWidth - 1);
-                const int nearestY = std::clamp(
-                    static_cast<int>(maskY + 0.5f), 0, maskHeight - 1);
-                if (!foregroundSupport[nearestY * maskWidth + nearestX]) {
-                    alpha[y * width_ + x] = 0;
-                    continue;
-                }
                 const float confidence = std::clamp(
-                    (probability - 0.40f) / 0.28f, 0.0f, 1.0f);
+                    (probability - 0.03f) / 0.94f, 0.0f, 1.0f);
                 const float feathered = confidence * confidence *
                     (3.0f - 2.0f * confidence);
                 alpha[y * width_ + x] = static_cast<uint8_t>(

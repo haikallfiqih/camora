@@ -3,6 +3,12 @@ cmake_minimum_required(VERSION 3.10)
 project(camora_v4l2 LANGUAGES CXX)
 
 find_package(PkgConfig REQUIRED)
+find_file(
+    ONNXRUNTIME_LIBRARY
+    NAMES libonnxruntime.so libonnxruntime.so.1.23 libonnxruntime.so.1.23.2
+    PATHS /usr/lib /usr/lib/x86_64-linux-gnu
+    REQUIRED
+)
 
 pkg_check_modules(
     GST REQUIRED
@@ -35,6 +41,7 @@ target_link_libraries(
     camora_v4l2
     PRIVATE
     ${GST_LIBRARIES}
+    ${ONNXRUNTIME_LIBRARY}
     ${CMAKE_DL_LIBS}
 )
 

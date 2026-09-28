@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -12,31 +13,31 @@ public:
     BackgroundSegmenter(const BackgroundSegmenter&) = delete;
     BackgroundSegmenter& operator=(const BackgroundSegmenter&) = delete;
 
-    bool initialize(const std::string& modelPath);
+    bool initialize(
+        const std::string& modelPath,
+        int frameWidth,
+        int frameHeight
+    );
     bool segment(
         const uint8_t* rgba,
         int width,
         int height,
         std::vector<float>& mask
     );
-    bool available() const { return interpreter_ != nullptr; }
-    int maskWidth() const { return outputWidth_; }
-    int maskHeight() const { return outputHeight_; }
+    bool available() const;
+    bool configuredForFrame(int width, int height) const;
+    void resetTemporalState();
+    int maskWidth() const { return inputWidth_; }
+    int maskHeight() const { return inputHeight_; }
 
 private:
     void reset();
 
-    void* library_ = nullptr;
-    void* model_ = nullptr;
-    void* options_ = nullptr;
-    void* interpreter_ = nullptr;
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
     int inputWidth_ = 0;
     int inputHeight_ = 0;
-    int outputWidth_ = 0;
-    int outputHeight_ = 0;
-    int outputChannels_ = 0;
-
-    struct Api;
-    Api* api_ = nullptr;
+    int frameWidth_ = 0;
+    int frameHeight_ = 0;
     std::vector<float> inputBuffer_;
 };

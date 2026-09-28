@@ -56,7 +56,7 @@ static bool ensure_segmentation_model() {
       "flutter_assets",
       "assets",
       "models",
-      "deeplabv3_person.tflite",
+      "rvm_mobilenetv3_fp32.onnx",
       nullptr);
   return g_camora_capture.configureSegmentationModel(model_path);
 }
