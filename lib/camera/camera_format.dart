@@ -31,7 +31,7 @@ class CameraFormat {
       _ => '${height}p',
     };
 
-    return '$quality · ${fps} FPS · $pixelFormat';
+    return '$quality · $fps FPS · $pixelFormat';
   }
 
   @override
