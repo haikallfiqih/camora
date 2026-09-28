@@ -34,7 +34,7 @@ bool CaptureEngine::start(
     );
 
     subjectMask_.clear();
-    subjectAlpha_.clear();
+    segmentationFrame_.clear();
 
     {
         std::lock_guard<std::mutex> lock(processingMutex_);
@@ -96,6 +96,11 @@ void CaptureEngine::stop() {
     if (segmentationThread_.joinable()) {
         segmentationThread_.join();
     }
+
+    // All workers are stopped, so nothing can access the RVM session.
+    // Release ONNX Runtime / CUDA resources explicitly while the CUDA
+    // driver and process runtime are still fully alive.
+    segmenter_.shutdown();
 }
 
 void CaptureEngine::setLowLightEnhancement(
@@ -199,11 +204,15 @@ void CaptureEngine::processingLoop() {
             height_
         );
 
-        compositeBackground(frame.data());
+        if (backgroundEnabled_ && segmenter_.available()) {
+            submitSegmentationFrame(frame.data());
+        }
 
-        // frameMutex_ is held only while publishing the
-        // finished frame.
-        {
+        // When background replacement is enabled, the segmentation
+        // worker owns publishing because it has the mask matched to
+        // this frame. Publishing here as well would alternate between
+        // raw and composited frames, causing background flicker.
+        if (!backgroundEnabled_) {
             std::lock_guard<std::mutex> lock(frameMutex_);
 
             if (latestFrame_.size() == frame.size()) {
@@ -241,12 +250,23 @@ void CaptureEngine::submitSegmentationFrame(const uint8_t* rgba) {
             destination[3] = 255;
         }
     }
+    const size_t fullFrameSize =
+        static_cast<size_t>(width_ * height_ * 4);
+
+    segmentationFrame_.assign(
+        rgba,
+        rgba + fullFrameSize
+    );
+
     segmentationPending_ = true;
     lock.unlock();
     segmentationCondition_.notify_one();
 }
+
 void CaptureEngine::segmentationLoop() {
     std::vector<uint8_t> input;
+    std::vector<uint8_t> sourceFrame;
+
     while (true) {
         {
             std::unique_lock<std::mutex> lock(segmentationMutex_);
@@ -255,6 +275,7 @@ void CaptureEngine::segmentationLoop() {
             });
             if (segmentationStop_) return;
             input.swap(segmentationInput_);
+            sourceFrame.swap(segmentationFrame_);
             segmentationPending_ = false;
         }
 
@@ -301,17 +322,38 @@ void CaptureEngine::segmentationLoop() {
             }
         }
 
-        std::lock_guard<std::mutex> lock(alphaMutex_);
-        subjectAlpha_ = std::move(alpha);
+        if (sourceFrame.size() !=
+            static_cast<size_t>(width_ * height_ * 4)) {
+            continue;
+        }
+
+        compositeBackground(
+            sourceFrame.data(),
+            alpha
+        );
+
+        {
+            std::lock_guard<std::mutex> lock(frameMutex_);
+
+            if (latestFrame_.size() == sourceFrame.size()) {
+                std::memcpy(
+                    latestFrame_.data(),
+                    sourceFrame.data(),
+                    sourceFrame.size()
+                );
+            }
+        }
     }
 }
 
-void CaptureEngine::compositeBackground(uint8_t* rgba) {
-    if (!backgroundEnabled_ || !segmenter_.available()) return;
-    submitSegmentationFrame(rgba);
-
-    std::lock_guard<std::mutex> alphaLock(alphaMutex_);
-    if (subjectAlpha_.size() != static_cast<size_t>(width_ * height_)) return;
+void CaptureEngine::compositeBackground(
+    uint8_t* rgba,
+    const std::vector<uint8_t>& alpha
+) {
+    if (!rgba ||
+        alpha.size() != static_cast<size_t>(width_ * height_)) {
+        return;
+    }
 
     std::lock_guard<std::mutex> backgroundLock(backgroundMutex_);
     if (!backgroundEnabled_ || backgroundPixels_.empty() ||
@@ -322,17 +364,17 @@ void CaptureEngine::compositeBackground(uint8_t* rgba) {
         for (size_t pixel = 0; pixel < pixelCount; ++pixel) {
             uint8_t* foreground = rgba + pixel * 4;
             const uint8_t* background = backgroundPixels_.data() + pixel * 4;
-            const int alpha = subjectAlpha_[pixel];
-            const int inverseAlpha = 255 - alpha;
+            const int alphaValue = alpha[pixel];
+            const int inverseAlpha = 255 - alphaValue;
             foreground[0] = static_cast<uint8_t>(
-                (foreground[0] * alpha + background[0] * inverseAlpha + 127) /
-                255);
+                (foreground[0] * alphaValue +
+                 background[0] * inverseAlpha + 127) / 255);
             foreground[1] = static_cast<uint8_t>(
-                (foreground[1] * alpha + background[1] * inverseAlpha + 127) /
-                255);
+                (foreground[1] * alphaValue +
+                 background[1] * inverseAlpha + 127) / 255);
             foreground[2] = static_cast<uint8_t>(
-                (foreground[2] * alpha + background[2] * inverseAlpha + 127) /
-                255);
+                (foreground[2] * alphaValue +
+                 background[2] * inverseAlpha + 127) / 255);
         }
         return;
     }
@@ -346,11 +388,11 @@ void CaptureEngine::compositeBackground(uint8_t* rgba) {
             uint8_t* foreground = rgba + (y * width_ + x) * 4;
             const uint8_t* background = backgroundPixels_.data() +
                 (backgroundY * backgroundWidth_ + backgroundX) * 4;
-            const int alpha = subjectAlpha_[y * width_ + x];
-            const int inverseAlpha = 255 - alpha;
+            const int alphaValue = alpha[y * width_ + x];
+            const int inverseAlpha = 255 - alphaValue;
             for (int channel = 0; channel < 3; ++channel) {
                 foreground[channel] = static_cast<uint8_t>(
-                    (foreground[channel] * alpha +
+                    (foreground[channel] * alphaValue +
                      background[channel] * inverseAlpha + 127) / 255);
             }
         }

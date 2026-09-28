@@ -64,7 +64,10 @@ private:
     void submitProcessingFrame(const uint8_t* rgba, size_t size);
     void segmentationLoop();
     void submitSegmentationFrame(const uint8_t* rgba);
-    void compositeBackground(uint8_t* rgba);
+    void compositeBackground(
+        uint8_t* rgba,
+        const std::vector<uint8_t>& alpha
+    );
 
     std::string device_;
 
@@ -103,10 +106,9 @@ private:
     std::condition_variable segmentationCondition_;
     std::thread segmentationThread_;
     std::vector<uint8_t> segmentationInput_;
+    std::vector<uint8_t> segmentationFrame_;
     bool segmentationPending_ = false;
     bool segmentationStop_ = false;
-    std::mutex alphaMutex_;
-    std::vector<uint8_t> subjectAlpha_;
 
     std::mutex frameMutex_;
     std::vector<uint8_t> latestFrame_;
