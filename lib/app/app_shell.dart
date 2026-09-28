@@ -121,10 +121,14 @@ class _Sidebar extends StatelessWidget {
             children: [
               const _BrandMark(),
               if (expanded) ...[
-                const SizedBox(width: 11),
-                const Text(
-                  'Camora',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                const SizedBox(width: 8),
+                const Flexible(
+                  child: Text(
+                    'Camora',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                  ),
                 ),
               ],
             ],

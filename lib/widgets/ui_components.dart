@@ -15,14 +15,14 @@ class CamoraPanel extends StatelessWidget {
   final EdgeInsetsGeometry padding;
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: padding,
-    decoration: BoxDecoration(
-      color: CamoraColors.surface,
+  Widget build(BuildContext context) => Material(
+    color: CamoraColors.surface,
+    shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: CamoraColors.border),
+      side: const BorderSide(color: CamoraColors.border),
     ),
-    child: child,
+    clipBehavior: Clip.antiAlias,
+    child: Padding(padding: padding, child: child),
   );
 }
 
