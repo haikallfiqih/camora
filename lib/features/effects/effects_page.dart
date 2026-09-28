@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../../app/app_state.dart';
 import '../../app/camora_theme.dart';
+import '../../camera/camera_session.dart';
 import '../../widgets/ui_components.dart';
 
 class EffectsPage extends StatelessWidget {
-  const EffectsPage({required this.appState, super.key});
+  const EffectsPage({required this.session, required this.appState, super.key});
+
+  final CameraSession session;
 
   final AppState appState;
 
@@ -39,6 +42,7 @@ class EffectsPage extends StatelessWidget {
       'Low Light Enhancement',
       'Improve subject visibility when the room is dim.',
       Icons.light_mode_outlined,
+      available: true,
     ),
   ];
 
@@ -48,15 +52,21 @@ class EffectsPage extends StatelessWidget {
       const PageHeading(
         title: 'Effects',
         subtitle: 'Prepare enhancements for the Camora processing pipeline.',
-        trailing: StatusPill('Processing unavailable'),
+        trailing: StatusPill('Low light available', available: true),
       ),
       const SizedBox(height: 14),
       Expanded(
         child: LayoutBuilder(
           builder: (context, constraints) {
             final splitView = constraints.maxWidth >= 780;
-            final effectList = _EffectList(appState: appState);
-            final inspector = _EffectInspector(appState: appState);
+            final effectList = _EffectList(
+              session: session,
+              appState: appState,
+            );
+            final inspector = _EffectInspector(
+              session: session,
+              appState: appState,
+            );
 
             if (!splitView) {
               return ListView(
@@ -109,8 +119,8 @@ class _AvailabilityNotice extends StatelessWidget {
         SizedBox(width: 12),
         Expanded(
           child: Text(
-            'Effect processing is not connected yet. These controls configure '
-            'the planned pipeline and do not alter the live camera preview.',
+            'Low Light Enhancement is processed live in the native camera pipeline. '
+            'Background and framing effects remain unavailable until subject segmentation is added.',
             style: TextStyle(color: Color(0xFFD6DAE3), height: 1.4),
           ),
         ),
@@ -120,8 +130,9 @@ class _AvailabilityNotice extends StatelessWidget {
 }
 
 class _EffectList extends StatelessWidget {
-  const _EffectList({required this.appState});
+  const _EffectList({required this.session, required this.appState});
 
+  final CameraSession session;
   final AppState appState;
 
   @override
@@ -138,6 +149,12 @@ class _EffectList extends StatelessWidget {
               onChanged: (value) {
                 appState.selectEffect(effect.effect);
                 appState.setEffect(effect.effect, value);
+                if (effect.effect == CameraEffect.lowLightEnhancement) {
+                  session.configureLowLight(
+                    enabled: value,
+                    strength: appState.lowLightStrength,
+                  );
+                }
               },
             ),
           ),
@@ -210,7 +227,10 @@ class _EffectCard extends StatelessWidget {
             const SizedBox(width: 10),
             Semantics(
               label: 'Configure ${definition.title}',
-              child: Switch(value: configured, onChanged: onChanged),
+              child: Switch(
+                value: configured,
+                onChanged: definition.available ? onChanged : null,
+              ),
             ),
             const SizedBox(width: 2),
             Icon(
@@ -225,8 +245,9 @@ class _EffectCard extends StatelessWidget {
 }
 
 class _EffectInspector extends StatelessWidget {
-  const _EffectInspector({required this.appState});
+  const _EffectInspector({required this.session, required this.appState});
 
+  final CameraSession session;
   final AppState appState;
 
   @override
@@ -251,8 +272,15 @@ class _EffectInspector extends StatelessWidget {
               ),
               Switch(
                 value: configured,
-                onChanged: (value) =>
-                    appState.setEffect(definition.effect, value),
+                onChanged: definition.available
+                    ? (value) {
+                        appState.setEffect(definition.effect, value);
+                        session.configureLowLight(
+                          enabled: value,
+                          strength: appState.lowLightStrength,
+                        );
+                      }
+                    : null,
               ),
             ],
           ),
@@ -264,18 +292,42 @@ class _EffectInspector extends StatelessWidget {
           const SizedBox(height: 16),
           const Divider(height: 1),
           const SizedBox(height: 18),
-          _EffectSettings(effect: definition.effect, appState: appState),
+          if (definition.available)
+            _EffectSettings(
+              effect: definition.effect,
+              session: session,
+              appState: appState,
+            )
+          else
+            const _SettingMessage(
+              icon: Icons.lock_outline_rounded,
+              title: 'Processor unavailable',
+              message: 'This effect requires subject segmentation, which is not installed yet.',
+            ),
           const Spacer(),
           const Divider(height: 1),
           const SizedBox(height: 12),
-          const Row(
+          Row(
             children: [
-              Icon(Icons.schedule_rounded, size: 17, color: CamoraColors.muted),
-              SizedBox(width: 8),
+              Icon(
+                definition.available
+                    ? Icons.bolt_rounded
+                    : Icons.schedule_rounded,
+                size: 17,
+                color: definition.available
+                    ? CamoraColors.success
+                    : CamoraColors.muted,
+              ),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Configuration only — processing backend required',
-                  style: TextStyle(color: CamoraColors.muted, fontSize: 11),
+                  definition.available
+                      ? 'Applied live to the native camera preview'
+                      : 'Processing backend required',
+                  style: const TextStyle(
+                    color: CamoraColors.muted,
+                    fontSize: 11,
+                  ),
                 ),
               ),
             ],
@@ -287,9 +339,14 @@ class _EffectInspector extends StatelessWidget {
 }
 
 class _EffectSettings extends StatelessWidget {
-  const _EffectSettings({required this.effect, required this.appState});
+  const _EffectSettings({
+    required this.effect,
+    required this.session,
+    required this.appState,
+  });
 
   final CameraEffect effect;
+  final CameraSession session;
   final AppState appState;
 
   @override
@@ -313,7 +370,13 @@ class _EffectSettings extends StatelessWidget {
     CameraEffect.lowLightEnhancement => _EffectSlider(
       label: 'Enhancement strength',
       value: appState.lowLightStrength,
-      onChanged: appState.setLowLightStrength,
+      onChanged: (value) {
+        appState.setLowLightStrength(value);
+        session.configureLowLight(
+          enabled: appState.effectEnabled(CameraEffect.lowLightEnhancement),
+          strength: value,
+        );
+      },
     ),
   };
 }
@@ -410,10 +473,17 @@ class _SettingMessage extends StatelessWidget {
 }
 
 class EffectDefinition {
-  const EffectDefinition(this.effect, this.title, this.description, this.icon);
+  const EffectDefinition(
+    this.effect,
+    this.title,
+    this.description,
+    this.icon, {
+    this.available = false,
+  });
 
   final CameraEffect effect;
   final String title;
   final String description;
   final IconData icon;
+  final bool available;
 }

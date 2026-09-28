@@ -3,6 +3,8 @@
 #include <gst/gst.h>
 #include <gst/app/gstappsink.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <iostream>
 
@@ -51,6 +53,14 @@ void CaptureEngine::stop() {
     if (thread_.joinable()) {
         thread_.join();
     }
+}
+
+void CaptureEngine::setLowLightEnhancement(
+    bool enabled,
+    int strength
+) {
+    lowLightEnabled_ = enabled;
+    lowLightStrength_ = std::clamp(strength, 0, 100);
 }
 
 bool CaptureEngine::copyLatestFrame(
@@ -180,6 +190,21 @@ void CaptureEngine::captureLoop() {
                     map.data,
                     required
                 );
+
+                if (lowLightEnabled_) {
+                    const int strength = lowLightStrength_.load();
+                    const double gamma = 1.0 - (0.55 * strength / 100.0);
+                    uint8_t lookup[256];
+                    for (int value = 0; value < 256; ++value) {
+                        lookup[value] = static_cast<uint8_t>(std::round(
+                            std::pow(value / 255.0, gamma) * 255.0));
+                    }
+                    for (size_t offset = 0; offset < required; offset += 4) {
+                        latestFrame_[offset] = lookup[latestFrame_[offset]];
+                        latestFrame_[offset + 1] = lookup[latestFrame_[offset + 1]];
+                        latestFrame_[offset + 2] = lookup[latestFrame_[offset + 2]];
+                    }
+                }
             }
 
             gst_buffer_unmap(

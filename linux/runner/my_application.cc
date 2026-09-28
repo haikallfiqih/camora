@@ -207,6 +207,37 @@ static void video_method_call_cb(
     return;
   }
 
+  if (strcmp(method, "setEffects") == 0) {
+    FlValue* args = fl_method_call_get_args(method_call);
+    bool low_light_enabled = false;
+    int low_light_strength = 50;
+
+    if (args && fl_value_get_type(args) == FL_VALUE_TYPE_MAP) {
+      FlValue* enabled_value =
+          fl_value_lookup_string(args, "lowLightEnabled");
+      FlValue* strength_value =
+          fl_value_lookup_string(args, "lowLightStrength");
+
+      if (enabled_value &&
+          fl_value_get_type(enabled_value) == FL_VALUE_TYPE_BOOL) {
+        low_light_enabled = fl_value_get_bool(enabled_value);
+      }
+      if (strength_value &&
+          fl_value_get_type(strength_value) == FL_VALUE_TYPE_INT) {
+        low_light_strength = static_cast<int>(
+            fl_value_get_int(strength_value));
+      }
+    }
+
+    g_camora_capture.setLowLightEnhancement(
+        low_light_enabled, low_light_strength);
+
+    g_autoptr(FlMethodResponse) response =
+        FL_METHOD_RESPONSE(fl_method_success_response_new(nullptr));
+    fl_method_call_respond(method_call, response, nullptr);
+    return;
+  }
+
   if (strcmp(method, "stop") == 0) {
     stop_camora_video();
 

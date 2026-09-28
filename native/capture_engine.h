@@ -21,6 +21,11 @@ public:
 
     void stop();
 
+    void setLowLightEnhancement(
+        bool enabled,
+        int strength
+    );
+
     bool copyLatestFrame(
         uint8_t* destination,
         int destinationSize
@@ -46,6 +51,8 @@ private:
     int fps_ = 0;
 
     std::atomic<bool> running_{false};
+    std::atomic<bool> lowLightEnabled_{false};
+    std::atomic<int> lowLightStrength_{50};
 
     std::thread thread_;
 

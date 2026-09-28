@@ -81,7 +81,7 @@ class _AppShellState extends State<AppShell> {
   Widget _currentPage() => switch (appState.currentPage) {
     CamoraPage.studio => StudioPage(session: session, appState: appState),
     CamoraPage.camera => CameraPage(session: session),
-    CamoraPage.effects => EffectsPage(appState: appState),
+    CamoraPage.effects => EffectsPage(session: session, appState: appState),
     CamoraPage.virtualCamera => VirtualCameraPage(session: session),
     CamoraPage.settings => const SettingsPage(),
   };
