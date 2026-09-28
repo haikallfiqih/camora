@@ -56,6 +56,9 @@ private:
 
     std::thread thread_;
 
+    std::mutex effectMutex_;
+    void* lowLightFilter_ = nullptr;
+
     std::mutex frameMutex_;
     std::vector<uint8_t> latestFrame_;
 };

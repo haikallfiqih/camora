@@ -4,7 +4,7 @@
 #include <gst/app/gstappsink.h>
 
 #include <algorithm>
-#include <cmath>
+
 #include <cstring>
 #include <iostream>
 
@@ -44,10 +44,6 @@ bool CaptureEngine::start(
 }
 
 void CaptureEngine::stop() {
-    if (!running_) {
-        return;
-    }
-
     running_ = false;
 
     if (thread_.joinable()) {
@@ -59,8 +55,22 @@ void CaptureEngine::setLowLightEnhancement(
     bool enabled,
     int strength
 ) {
+    const int safeStrength = std::clamp(strength, 0, 100);
     lowLightEnabled_ = enabled;
-    lowLightStrength_ = std::clamp(strength, 0, 100);
+    lowLightStrength_ = safeStrength;
+
+    const double gamma = enabled
+        ? 1.0 + (1.5 * safeStrength / 100.0)
+        : 1.0;
+    std::lock_guard<std::mutex> lock(effectMutex_);
+    if (lowLightFilter_) {
+        g_object_set(
+            G_OBJECT(lowLightFilter_),
+            "gamma",
+            gamma,
+            nullptr
+        );
+    }
 }
 
 bool CaptureEngine::copyLatestFrame(
@@ -106,6 +116,7 @@ void CaptureEngine::captureLoop() {
         std::to_string(fps_) +
         "/1"
         " ! jpegdec"
+        " ! gamma name=lowlight"
         " ! videoconvert"
         " ! video/x-raw,format=RGBA"
         " ! appsink name=sink"
@@ -135,6 +146,27 @@ void CaptureEngine::captureLoop() {
         return;
     }
 
+    GstElement* lowLightFilter =
+        gst_bin_get_by_name(
+            GST_BIN(pipeline),
+            "lowlight"
+        );
+
+    if (lowLightFilter) {
+        const int strength = lowLightStrength_.load();
+        const double gamma = lowLightEnabled_
+            ? 1.0 + (1.5 * strength / 100.0)
+            : 1.0;
+        g_object_set(
+            G_OBJECT(lowLightFilter),
+            "gamma",
+            gamma,
+            nullptr
+        );
+        std::lock_guard<std::mutex> lock(effectMutex_);
+        lowLightFilter_ = lowLightFilter;
+    }
+
     GstElement* sink =
         gst_bin_get_by_name(
             GST_BIN(pipeline),
@@ -142,6 +174,13 @@ void CaptureEngine::captureLoop() {
         );
 
     if (!sink) {
+        {
+            std::lock_guard<std::mutex> lock(effectMutex_);
+            lowLightFilter_ = nullptr;
+        }
+        if (lowLightFilter) {
+            gst_object_unref(lowLightFilter);
+        }
         gst_object_unref(pipeline);
         running_ = false;
         return;
@@ -190,21 +229,6 @@ void CaptureEngine::captureLoop() {
                     map.data,
                     required
                 );
-
-                if (lowLightEnabled_) {
-                    const int strength = lowLightStrength_.load();
-                    const double gamma = 1.0 - (0.55 * strength / 100.0);
-                    uint8_t lookup[256];
-                    for (int value = 0; value < 256; ++value) {
-                        lookup[value] = static_cast<uint8_t>(std::round(
-                            std::pow(value / 255.0, gamma) * 255.0));
-                    }
-                    for (size_t offset = 0; offset < required; offset += 4) {
-                        latestFrame_[offset] = lookup[latestFrame_[offset]];
-                        latestFrame_[offset + 1] = lookup[latestFrame_[offset + 1]];
-                        latestFrame_[offset + 2] = lookup[latestFrame_[offset + 2]];
-                    }
-                }
             }
 
             gst_buffer_unmap(
@@ -220,6 +244,14 @@ void CaptureEngine::captureLoop() {
         pipeline,
         GST_STATE_NULL
     );
+
+    {
+        std::lock_guard<std::mutex> lock(effectMutex_);
+        lowLightFilter_ = nullptr;
+    }
+    if (lowLightFilter) {
+        gst_object_unref(lowLightFilter);
+    }
 
     gst_object_unref(sink);
     gst_object_unref(pipeline);
