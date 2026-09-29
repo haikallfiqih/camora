@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "artifact": {
     "version": "1",
-    "url": null,
+    "url": "https://github.com/haikallfiqih/camora/releases/download/v1.0.0/camora-nvidia-gpu-runtime-v1-linux-x86_64.tar.gz",
     "sha256": "537b56c0383b2b6e0fa9f49a81cfb82b51893ad7667c64ddb68b376c890e504f",
     "minDriver": "595.91.07"
   }

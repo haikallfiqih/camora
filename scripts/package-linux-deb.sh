@@ -42,7 +42,7 @@ install -m 0644 "$PROJECT_ROOT/assets/models/RVM_LICENSE" "$LICENSE_DIR/RVM-LICE
 install -m 0644 "$PROJECT_ROOT/assets/models/README.md" "$LICENSE_DIR/RVM-MODEL-NOTICE"
 [[ ! -f "$APP_DIR/data/flutter_assets/NOTICES.Z" ]] || cp "$APP_DIR/data/flutter_assets/NOTICES.Z" "$LICENSE_DIR/FLUTTER-NOTICES.Z"
 install -m 0644 "$PROJECT_ROOT/packaging/linux/deb/camora.desktop" "$STAGING_DIR/usr/share/applications/camora.desktop"
-install -m 0644 "$PROJECT_ROOT/assets/images/camora_logo.png" "$STAGING_DIR/usr/share/pixmaps/camora.png"
+install -m 0644 "$PROJECT_ROOT/assets/images/camora_icon.png" "$STAGING_DIR/usr/share/pixmaps/camora.png"
 INSTALLED_SIZE="$(du -sk "$STAGING_DIR/opt" "$STAGING_DIR/usr" | awk '{total += $1} END {print total}')"
 sed -e "s/@VERSION@/$VERSION/g" -e "s/@INSTALLED_SIZE@/$INSTALLED_SIZE/g" "$PROJECT_ROOT/packaging/linux/deb/control.in" > "$STAGING_DIR/DEBIAN/control"
 find "$STAGING_DIR" -type d -exec chmod 0755 '{}' +
